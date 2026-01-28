@@ -11,7 +11,7 @@ import json
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1kE47tRqR9YXT9C3Jn0nch4jKK8p4E6PqgFibhRcnNKA/edit?gid=0#gid=0" 
 # (記得替換上面這行！)
 
-# --- 1. 設定與風格 (CSS 更新) ---
+# --- 1. 設定與風格 ---
 st.set_page_config(page_title="霍格華茲成語魔法學院", page_icon="🏰", layout="wide")
 
 st.markdown("""
@@ -30,26 +30,21 @@ st.markdown("""
         color: #740001; 
     }
     
-    /* --- 側邊欄樣式修正 (深色背景 + 白色標題) --- */
+    /* --- 側邊欄樣式 --- */
     section[data-testid="stSidebar"] {
         background-color: #262730;
         color: #ecf0f1;
     }
-    
-    /* 針對側邊欄的標題 H1, H2 */
     section[data-testid="stSidebar"] h1, 
     section[data-testid="stSidebar"] h2 {
-        color: #f1c40f; /* 金黃色 */
+        color: #f1c40f; 
     }
-
-    /* ★★★ 重點修正：強制將側邊欄的 Input 和 Selectbox 標題改為白色 ★★★ */
+    /* 強制側邊欄標籤為白色 */
     section[data-testid="stSidebar"] label {
         color: #ffffff !important;
         font-weight: bold;
         font-size: 1.1em;
     }
-    
-    /* 側邊欄的一般文字 */
     section[data-testid="stSidebar"] p, 
     section[data-testid="stSidebar"] div, 
     section[data-testid="stSidebar"] span {
@@ -192,6 +187,7 @@ def get_user_data():
 
 def init_user_local(name):
     if name not in st.session_state.user_db:
+        # 重拉一次確保不是因為快取沒讀到
         st.session_state.user_db = load_db_from_sheet()
         
     if name not in st.session_state.user_db:
@@ -250,14 +246,33 @@ def generate_question(subject):
 with st.sidebar:
     st.markdown("<h1 style='text-align: center;'>🏰 霍格華茲</h1>", unsafe_allow_html=True)
     
-    input_name = st.text_input("巫師姓名 (輸入後按 Enter)", placeholder="請輸入名字...")
-    if input_name:
-        clean_name = input_name.strip()
-        if clean_name and st.session_state.current_user != clean_name:
-            init_user_local(clean_name)
-            st.session_state.current_user = clean_name
+    # 取得現有名單
+    existing_users = []
+    if st.session_state.user_db:
+        existing_users = list(st.session_state.user_db.keys())
+    
+    st.write("### 🧙‍♂️ 登入入學")
+    
+    # 方式一：選擇現有
+    selected_name = st.selectbox("選擇現有巫師：", ["請選擇..."] + existing_users)
+    
+    # 方式二：創建新名
+    new_name_input = st.text_input("或是 註冊新巫師 (輸入後按 Enter)")
+    
+    # 決定最終登入名字
+    final_name = None
+    if new_name_input: # 優先採用輸入框（新建）
+        final_name = new_name_input.strip()
+    elif selected_name != "請選擇...": # 其次採用選單
+        final_name = selected_name
+
+    # 執行登入切換
+    if final_name:
+        if st.session_state.current_user != final_name:
+            init_user_local(final_name)
+            st.session_state.current_user = final_name
             st.session_state.current_q = None
-            st.toast(f"歡迎回來，{clean_name}！資料已同步。")
+            st.toast(f"歡迎回來，{final_name}！")
             st.rerun()
 
     if st.session_state.current_user:
@@ -273,7 +288,8 @@ with st.sidebar:
             st.toast("體力已回復！")
 
         hp = ud['hp']
-        st.markdown(f"### 🧙‍♂️ {st.session_state.current_user}")
+        # 顯示名字時使用標題樣式
+        st.markdown(f"## 🎓 {st.session_state.current_user}")
         st.markdown(f"<div style='font-size:20px; color:#c62828'>{'❤️'*hp}{'🤍'*(10-hp)}</div>", unsafe_allow_html=True)
         st.caption(f"HP: {hp}/10")
         
@@ -291,7 +307,7 @@ with st.sidebar:
         st.markdown("---")
         lvl = ud['level']
         cfg = LEVELS[lvl]
-        st.write(f"🎓 **{cfg['name']}**")
+        st.write(f"**等級：{cfg['name']}**")
         st.progress(min(1.0, ud['level_correct']/cfg['target']))
         if cfg['streak_req'] > 0:
             st.write(f"🔥 連對: {ud['streak']}/{cfg['streak_req']}")
@@ -304,7 +320,7 @@ if 'show_cert' not in st.session_state: st.session_state.show_cert = False
 
 with tab1:
     if not st.session_state.current_user:
-        st.info("請先在左側輸入姓名入學。")
+        st.info("👈 請在左側 選取 或 註冊 巫師名字以開始遊戲。")
     else:
         ud = get_user_data()
         
@@ -348,9 +364,13 @@ with tab1:
                 if q:
                     st.markdown(f"### {q['text']}")
                     with st.form("ans"):
-                        if q['type'] in ['def', 'sent']: ans = st.radio("選：", q['options'])
-                        elif q['type'] == 'fill': ans = st.text_input("填字：", max_chars=1)
-                        elif q['type'] == 'chal': ans = st.text_input("成語：")
+                        if q['type'] in ['def', 'sent']: 
+                            ans = st.radio("選項：", q['options'])
+                        elif q['type'] == 'fill': 
+                            ans = st.text_input("填字：", max_chars=1)
+                        elif q['type'] == 'chal': 
+                            ans = st.text_input("成語：")
+                        
                         sub = st.form_submit_button("🪄 施法")
                     
                     if sub:
