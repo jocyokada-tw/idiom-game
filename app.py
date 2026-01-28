@@ -45,10 +45,17 @@ st.markdown("""
         font-weight: bold;
         font-size: 1.1em;
     }
+    /* 側邊欄一般文字 */
     section[data-testid="stSidebar"] p, 
     section[data-testid="stSidebar"] div, 
     section[data-testid="stSidebar"] span {
         color: #e0e0e0;
+    }
+    /* 特別針對進度條文字加強對比 */
+    .progress-label {
+        font-weight: bold;
+        color: #ffffff !important;
+        margin-bottom: -5px;
     }
 
     /* 按鈕樣式 */
@@ -166,6 +173,7 @@ def load_idioms():
 
 df = load_idioms()
 
+# --- 等級設定：確保符合您的需求 ---
 LEVELS = {
     1: {"name": "一年級", "type": "def", "target": 90, "streak_req": 20, "desc": "解釋題"},
     2: {"name": "三年級", "type": "sent", "target": 70, "streak_req": 15, "desc": "例句題"},
@@ -252,21 +260,13 @@ with st.sidebar:
         existing_users = list(st.session_state.user_db.keys())
     
     st.write("### 🧙‍♂️ 登入入學")
-    
-    # 方式一：選擇現有
     selected_name = st.selectbox("選擇現有巫師：", ["請選擇..."] + existing_users)
-    
-    # 方式二：創建新名
     new_name_input = st.text_input("或是 註冊新巫師 (輸入後按 Enter)")
     
-    # 決定最終登入名字
     final_name = None
-    if new_name_input: # 優先採用輸入框（新建）
-        final_name = new_name_input.strip()
-    elif selected_name != "請選擇...": # 其次採用選單
-        final_name = selected_name
+    if new_name_input: final_name = new_name_input.strip()
+    elif selected_name != "請選擇...": final_name = selected_name
 
-    # 執行登入切換
     if final_name:
         if st.session_state.current_user != final_name:
             init_user_local(final_name)
@@ -278,6 +278,7 @@ with st.sidebar:
     if st.session_state.current_user:
         ud = get_user_data()
         
+        # 回血檢查
         now = time.time()
         elapsed = now - ud['last_hp_time']
         rec = int(elapsed // 1800)
@@ -288,7 +289,6 @@ with st.sidebar:
             st.toast("體力已回復！")
 
         hp = ud['hp']
-        # 顯示名字時使用標題樣式
         st.markdown(f"## 🎓 {st.session_state.current_user}")
         st.markdown(f"<div style='font-size:20px; color:#c62828'>{'❤️'*hp}{'🤍'*(10-hp)}</div>", unsafe_allow_html=True)
         st.caption(f"HP: {hp}/10")
@@ -305,12 +305,31 @@ with st.sidebar:
             st.rerun()
             
         st.markdown("---")
+        
+        # ----------------------------------------------------
+        # ★★★ 修正部分：恢復雙重進度條顯示 ★★★
+        # ----------------------------------------------------
         lvl = ud['level']
         cfg = LEVELS[lvl]
-        st.write(f"**等級：{cfg['name']}**")
-        st.progress(min(1.0, ud['level_correct']/cfg['target']))
-        if cfg['streak_req'] > 0:
-            st.write(f"🔥 連對: {ud['streak']}/{cfg['streak_req']}")
+        
+        st.markdown(f"### 🎓 **{cfg['name']}**")
+        st.caption(f"測驗內容：{cfg['desc']}")
+        
+        # 進度條 1: 累積答對
+        c_total = ud['level_correct']
+        t_total = cfg['target']
+        st.markdown(f"<p class='progress-label'>✅ 累積答對：{c_total} / {t_total}</p>", unsafe_allow_html=True)
+        st.progress(min(1.0, c_total/t_total))
+        
+        # 進度條 2: 連續答對 (如果有的話)
+        req_streak = cfg['streak_req']
+        if req_streak > 0:
+            c_streak = ud['streak']
+            st.markdown(f"<p class='progress-label'>🔥 連續答對：{c_streak} / {req_streak}</p>", unsafe_allow_html=True)
+            st.progress(min(1.0, c_streak/req_streak))
+        else:
+            st.info("🔥 此等級只需累積題數，不需連續答對！")
+        # ----------------------------------------------------
 
 # --- 6. 主畫面邏輯 ---
 tab1, tab2, tab3 = st.tabs(["⚡ 咒語修練", "🏆 學院布告欄", "🔮 錯題儲思盆"])
