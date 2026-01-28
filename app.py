@@ -9,20 +9,65 @@ import json
 
 # --- 設定：請將此網址換成你的 Google 試算表網址 ---
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1kE47tRqR9YXT9C3Jn0nch4jKK8p4E6PqgFibhRcnNKA/edit?gid=0#gid=0" 
-# (請替換上面這行！)
+# (記得替換上面這行！)
 
-# --- 1. 設定與風格 ---
+# --- 1. 設定與風格 (CSS 更新) ---
 st.set_page_config(page_title="霍格華茲成語魔法學院", page_icon="🏰", layout="wide")
 
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=Noto+Serif+TC:wght@400;700&display=swap');
-    .stApp { background-color: #f8f5e6; font-family: 'Noto Serif TC', serif; }
-    h1, h2, h3, .magic-font { font-family: 'Ma Shan Zheng', cursive; color: #740001; }
-    section[data-testid="stSidebar"] { background-color: #262730; color: #ecf0f1; }
-    section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2 { color: #f1c40f; }
-    .stButton>button { color: #d3a625; background-color: #740001; border: 2px solid #d3a625; font-weight: bold; border-radius: 8px; font-family: 'Noto Serif TC', serif; }
+
+    /* 全局設定 */
+    .stApp { 
+        background-color: #f8f5e6; 
+        font-family: 'Noto Serif TC', serif; 
+    }
+    
+    /* 標題與魔法文字體 */
+    h1, h2, h3, .magic-font { 
+        font-family: 'Ma Shan Zheng', cursive; 
+        color: #740001; 
+    }
+    
+    /* --- 側邊欄樣式修正 (深色背景 + 白色標題) --- */
+    section[data-testid="stSidebar"] {
+        background-color: #262730;
+        color: #ecf0f1;
+    }
+    
+    /* 針對側邊欄的標題 H1, H2 */
+    section[data-testid="stSidebar"] h1, 
+    section[data-testid="stSidebar"] h2 {
+        color: #f1c40f; /* 金黃色 */
+    }
+
+    /* ★★★ 重點修正：強制將側邊欄的 Input 和 Selectbox 標題改為白色 ★★★ */
+    section[data-testid="stSidebar"] label {
+        color: #ffffff !important;
+        font-weight: bold;
+        font-size: 1.1em;
+    }
+    
+    /* 側邊欄的一般文字 */
+    section[data-testid="stSidebar"] p, 
+    section[data-testid="stSidebar"] div, 
+    section[data-testid="stSidebar"] span {
+        color: #e0e0e0;
+    }
+
+    /* 按鈕樣式 */
+    .stButton>button { 
+        color: #d3a625; 
+        background-color: #740001; 
+        border: 2px solid #d3a625; 
+        font-weight: bold; 
+        border-radius: 8px;
+        font-family: 'Noto Serif TC', serif;
+    }
     .stButton>button:hover { background-color: #5d0000; border-color: #ffcc00; }
+    
+    /* 證書與訊息框 */
     .certificate-box { border: 5px double #d3a625; padding: 30px; background-color: #fffbf0; text-align: center; margin: 20px 0; box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
     .success-msg { padding:15px; background-color:#d4edda; color:#155724; border-left: 5px solid #28a745; font-weight:bold; }
     .error-box { padding:15px; background-color:#f8d7da; color:#721c24; border-left: 5px solid #dc3545; }
@@ -33,7 +78,6 @@ st.markdown("""
 # --- 2. Google Sheets 連線管理 ---
 @st.cache_resource
 def get_gsheet_client():
-    # 從 Secrets 讀取憑證
     try:
         creds_dict = dict(st.secrets["gcp_service_account"])
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
@@ -47,14 +91,12 @@ def get_gsheet_client():
 def load_db_from_sheet():
     client = get_gsheet_client()
     if not client: return {}
-    
     try:
         sheet = client.open_by_url(SHEET_URL).sheet1
         data = sheet.get_all_records()
         user_db = {}
         for row in data:
             name = str(row['Name'])
-            # 資料轉換：字串轉回列表或數字
             user_db[name] = {
                 'level': int(row['Level']),
                 'xp': int(row['XP']),
@@ -68,40 +110,24 @@ def load_db_from_sheet():
             }
         return user_db
     except Exception as e:
-        # 如果是新表可能是空的，回傳空字典
         return {}
 
 def save_user_to_sheet(name, stats):
     client = get_gsheet_client()
     if not client: return
-    
     try:
         sheet = client.open_by_url(SHEET_URL).sheet1
-        # 準備要寫入的資料
         row_data = [
-            name,
-            stats['level'],
-            stats['xp'],
-            stats['hp'],
-            stats['last_hp_time'],
-            stats['level_correct'],
-            stats['streak'],
-            stats['max_streak'],
-            ",".join(stats['badges']),
-            str(stats['wrong_list'])
+            name, stats['level'], stats['xp'], stats['hp'], stats['last_hp_time'],
+            stats['level_correct'], stats['streak'], stats['max_streak'],
+            ",".join(stats['badges']), str(stats['wrong_list'])
         ]
-        
-        # 檢查使用者是否已存在
         cell = sheet.find(name)
         if cell:
-            # 更新現有列 (row)
-            # 注意：gspread 的 row 是從 1 開始，且我們標題是第一列，所以不用特別修正
             for col, val in enumerate(row_data, start=1):
                 sheet.update_cell(cell.row, col, val)
         else:
-            # 新增一列
             sheet.append_row(row_data)
-            
     except Exception as e:
         st.warning(f"存檔失敗 (網路可能不穩): {e}")
 
@@ -154,7 +180,7 @@ LEVELS = {
 
 # --- 4. 初始化 Session State ---
 if 'user_db' not in st.session_state:
-    st.session_state.user_db = load_db_from_sheet() # 啟動時讀取雲端
+    st.session_state.user_db = load_db_from_sheet()
 
 if 'current_user' not in st.session_state:
     st.session_state.current_user = None
@@ -165,9 +191,7 @@ def get_user_data():
     return None
 
 def init_user_local(name):
-    # 先看記憶體有沒有，沒有看雲端，再沒有就新建
     if name not in st.session_state.user_db:
-        # 重新從雲端拉一次確保最新
         st.session_state.user_db = load_db_from_sheet()
         
     if name not in st.session_state.user_db:
@@ -177,66 +201,14 @@ def init_user_local(name):
             'badges': [], 'wrong_list': []
         }
         st.session_state.user_db[name] = new_user
-        save_user_to_sheet(name, new_user) # 立即存檔
+        save_user_to_sheet(name, new_user)
 
 def sync_data():
-    """將當前使用者的資料寫入雲端"""
     name = st.session_state.current_user
     if name and name in st.session_state.user_db:
         save_user_to_sheet(name, st.session_state.user_db[name])
 
 # --- 5. 側邊欄 ---
-with st.sidebar:
-    st.markdown("<h1 style='text-align: center;'>🏰 霍格華茲</h1>", unsafe_allow_html=True)
-    
-    input_name = st.text_input("巫師姓名 (輸入後按 Enter)", placeholder="請輸入名字...")
-    if input_name:
-        clean_name = input_name.strip()
-        if clean_name and st.session_state.current_user != clean_name:
-            init_user_local(clean_name)
-            st.session_state.current_user = clean_name
-            st.session_state.current_q = None
-            st.toast(f"歡迎回來，{clean_name}！資料已同步。")
-            st.rerun()
-
-    if st.session_state.current_user:
-        ud = get_user_data()
-        
-        # 回血邏輯
-        now = time.time()
-        elapsed = now - ud['last_hp_time']
-        rec = int(elapsed // 1800)
-        if rec > 0 and ud['hp'] < 10:
-            ud['hp'] = min(10, ud['hp'] + rec)
-            ud['last_hp_time'] = now - (elapsed % 1800)
-            sync_data() # 狀態改變，存檔
-            st.toast("體力已回復！")
-
-        hp = ud['hp']
-        st.markdown(f"### 🧙‍♂️ {st.session_state.current_user}")
-        st.markdown(f"<div style='font-size:20px; color:#c62828'>{'❤️'*hp}{'🤍'*(10-hp)}</div>", unsafe_allow_html=True)
-        st.caption(f"HP: {hp}/10")
-        
-        st.markdown("---")
-        
-        subjects = ["全部學科"] + sorted(list(df['魔法學科'].unique()))
-        if 'selected_subject' not in st.session_state: st.session_state.selected_subject = "全部學科"
-        new_subject = st.selectbox("📚 選修課程", subjects, index=subjects.index(st.session_state.selected_subject) if st.session_state.selected_subject in subjects else 0)
-        
-        if new_subject != st.session_state.selected_subject:
-            st.session_state.selected_subject = new_subject
-            st.session_state.current_q = None
-            st.rerun()
-            
-        st.markdown("---")
-        lvl = ud['level']
-        cfg = LEVELS[lvl]
-        st.write(f"🎓 **{cfg['name']}**")
-        st.progress(min(1.0, ud['level_correct']/cfg['target']))
-        if cfg['streak_req'] > 0:
-            st.write(f"🔥 連對: {ud['streak']}/{cfg['streak_req']}")
-
-# --- 6. 主程式 ---
 def generate_question(subject):
     if df.empty: return None
     pool = df if subject == "全部學科" else df[df['魔法學科'] == subject]
@@ -275,6 +247,56 @@ def generate_question(subject):
         q['text'] = f"🔥 **【終極挑戰】**：請寫出符合此解釋的成語\n{row['解釋']}"
     return q
 
+with st.sidebar:
+    st.markdown("<h1 style='text-align: center;'>🏰 霍格華茲</h1>", unsafe_allow_html=True)
+    
+    input_name = st.text_input("巫師姓名 (輸入後按 Enter)", placeholder="請輸入名字...")
+    if input_name:
+        clean_name = input_name.strip()
+        if clean_name and st.session_state.current_user != clean_name:
+            init_user_local(clean_name)
+            st.session_state.current_user = clean_name
+            st.session_state.current_q = None
+            st.toast(f"歡迎回來，{clean_name}！資料已同步。")
+            st.rerun()
+
+    if st.session_state.current_user:
+        ud = get_user_data()
+        
+        now = time.time()
+        elapsed = now - ud['last_hp_time']
+        rec = int(elapsed // 1800)
+        if rec > 0 and ud['hp'] < 10:
+            ud['hp'] = min(10, ud['hp'] + rec)
+            ud['last_hp_time'] = now - (elapsed % 1800)
+            sync_data()
+            st.toast("體力已回復！")
+
+        hp = ud['hp']
+        st.markdown(f"### 🧙‍♂️ {st.session_state.current_user}")
+        st.markdown(f"<div style='font-size:20px; color:#c62828'>{'❤️'*hp}{'🤍'*(10-hp)}</div>", unsafe_allow_html=True)
+        st.caption(f"HP: {hp}/10")
+        
+        st.markdown("---")
+        
+        subjects = ["全部學科"] + sorted(list(df['魔法學科'].unique()))
+        if 'selected_subject' not in st.session_state: st.session_state.selected_subject = "全部學科"
+        new_subject = st.selectbox("📚 選修課程", subjects, index=subjects.index(st.session_state.selected_subject) if st.session_state.selected_subject in subjects else 0)
+        
+        if new_subject != st.session_state.selected_subject:
+            st.session_state.selected_subject = new_subject
+            st.session_state.current_q = None
+            st.rerun()
+            
+        st.markdown("---")
+        lvl = ud['level']
+        cfg = LEVELS[lvl]
+        st.write(f"🎓 **{cfg['name']}**")
+        st.progress(min(1.0, ud['level_correct']/cfg['target']))
+        if cfg['streak_req'] > 0:
+            st.write(f"🔥 連對: {ud['streak']}/{cfg['streak_req']}")
+
+# --- 6. 主畫面邏輯 ---
 tab1, tab2, tab3 = st.tabs(["⚡ 咒語修練", "🏆 學院布告欄", "🔮 錯題儲思盆"])
 
 if 'last_result' not in st.session_state: st.session_state.last_result = None
@@ -286,7 +308,6 @@ with tab1:
     else:
         ud = get_user_data()
         
-        # 證書顯示
         if st.session_state.show_cert:
             cert_type = st.session_state.get('cert_type')
             if cert_type == "level_up":
@@ -303,7 +324,7 @@ with tab1:
                 else:
                     badge = f"{st.session_state.selected_subject}大師"
                     if badge not in ud['badges']: ud['badges'].append(badge)
-                sync_data() # 重要：存檔
+                sync_data()
                 st.session_state.show_cert = False
                 st.session_state.current_q = None
                 st.rerun()
@@ -346,7 +367,7 @@ with tab1:
                             ud['streak'] = 0
                             ud['wrong_list'].append({'成語': q['row']['成語'], '誤答': ans})
                         
-                        sync_data() # 重要：每次作答都存檔
+                        sync_data()
                         st.session_state.last_result = {'correct': corr, 'ans': q['ans']}
                         
                         cfg = LEVELS[ud['level']]
@@ -357,9 +378,8 @@ with tab1:
                         st.session_state.current_q = None
                         st.rerun()
 
-with tab2: # 排名
+with tab2:
     st.markdown("### 🏆 霍格華茲風雲榜")
-    # 重新讀取確保排名最新
     if st.button("🔄 更新排名"):
         st.session_state.user_db = load_db_from_sheet()
         
@@ -371,7 +391,7 @@ with tab2: # 排名
         df_rank = pd.DataFrame(data).sort_values("XP", ascending=False)
         st.dataframe(df_rank, hide_index=True, use_container_width=True)
 
-with tab3: # 錯題
+with tab3:
     if st.session_state.current_user:
         ud = get_user_data()
         if ud['wrong_list']:
