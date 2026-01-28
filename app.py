@@ -4,17 +4,51 @@ import random
 import time
 from datetime import datetime
 
-# --- 1. 設定與風格 (CSS) ---
+# --- 1. 設定與風格 (CSS & Fonts) ---
 st.set_page_config(page_title="霍格華茲成語魔法學院", page_icon="🏰", layout="wide")
 
+# 引入 Ma Shan Zheng 字體 (Google Fonts) 作為書法風格替代，因為芫荽字體若無本地安裝無法在網頁顯示
 st.markdown("""
 <style>
+    @import url('https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=Noto+Serif+TC:wght@400;700&display=swap');
+
     /* 全局設定 */
-    .stApp { background-color: #f8f5e6; color: #2c2c2c; font-family: "Garamond", "Times New Roman", serif; }
-    h1, h2, h3 { color: #740001; font-weight: bold; }
+    .stApp { 
+        background-color: #f8f5e6; 
+        font-family: 'Noto Serif TC', serif; 
+    }
+    
+    /* 標題與魔法文字體 */
+    h1, h2, h3, .magic-font { 
+        font-family: 'Ma Shan Zheng', cursive; 
+        color: #740001; 
+    }
+    
+    /* --- 側邊欄樣式 (深色背景 + 淺色字) --- */
+    section[data-testid="stSidebar"] {
+        background-color: #262730;
+        color: #ecf0f1;
+    }
+    section[data-testid="stSidebar"] h1, 
+    section[data-testid="stSidebar"] h2, 
+    section[data-testid="stSidebar"] h3 {
+        color: #f1c40f; /* 金黃色標題 */
+    }
+    section[data-testid="stSidebar"] span, 
+    section[data-testid="stSidebar"] div, 
+    section[data-testid="stSidebar"] label {
+        color: #ecf0f1; /* 淺灰白內文 */
+    }
     
     /* 按鈕樣式 */
-    .stButton>button { color: #d3a625; background-color: #740001; border: 2px solid #d3a625; font-weight: bold; border-radius: 8px;}
+    .stButton>button { 
+        color: #d3a625; 
+        background-color: #740001; 
+        border: 2px solid #d3a625; 
+        font-weight: bold; 
+        border-radius: 8px;
+        font-family: 'Noto Serif TC', serif;
+    }
     .stButton>button:hover { background-color: #5d0000; border-color: #ffcc00; }
     
     /* 證書樣式 */
@@ -26,22 +60,17 @@ st.markdown("""
         margin: 20px 0;
         box-shadow: 0 4px 8px rgba(0,0,0,0.2);
     }
-    .cert-title { font-size: 2.5em; color: #740001; font-family: 'Cursive', serif; margin-bottom: 10px; }
-    .cert-body { font-size: 1.2em; color: #333; line-height: 1.6; }
-    .cert-signature { margin-top: 30px; font-style: italic; color: #555; }
     
     /* 訊息框 */
-    .success-msg { padding:15px; background-color:#d4edda; color:#155724; border-left: 5px solid #28a745; font-weight:bold; font-size:1.1em; }
+    .success-msg { padding:15px; background-color:#d4edda; color:#155724; border-left: 5px solid #28a745; font-weight:bold; }
     .error-box { padding:15px; background-color:#f8d7da; color:#721c24; border-left: 5px solid #dc3545; }
-    .correct-ans { font-size: 1.3em; font-weight: bold; color: #c62828; margin-top: 5px; }
+    .correct-ans { font-size: 1.5em; font-weight: bold; color: #c62828; margin-top: 5px; font-family: 'Ma Shan Zheng', cursive;}
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. 魔法分類帽演算法 (15學科版) ---
+# --- 2. 魔法分類帽演算法 ---
 def sorting_hat(idiom_row):
     text = str(idiom_row['成語']) + str(idiom_row['解釋'])
-    
-    # 關鍵字對映表
     keywords = {
         "神奇動物保護": "龍虎豹狼狗犬雞猴猿馬牛羊豬鼠兔蛇鳥鶴鷹魚鳳凰鴉雀鴻鵠鱉龜麟獸蟬蠶象狐",
         "草藥學": "花草樹木林葉根種子果實荷柳桃李松柏",
@@ -58,18 +87,14 @@ def sorting_hat(idiom_row):
         "麻瓜研究": "門戶家室衣食住行市井路途人情世故",
         "魔法史": "朝代春秋戰國古今世事",
     }
-    
-    # 優先順序判定
     for subject, keys in keywords.items():
         if any(k in text for k in keys):
             return subject
-            
-    return "符咒學" # 預設分類 (一般類)
+    return "符咒學" # 預設分類
 
 # --- 3. 資料處理 ---
 @st.cache_data
 def load_data():
-    # 支援多種檔名讀取
     files = ['idioms.csv', '成語資料庫.xlsx - 工作表1 (2).csv', '成語資料庫.csv']
     df = None
     for f in files:
@@ -79,324 +104,317 @@ def load_data():
         except: continue
     
     if df is None:
-        st.error("⚠️ 找不到資料庫檔案，請確認 CSV 已上傳。")
+        st.error("⚠️ 找不到資料庫檔案。")
         return pd.DataFrame()
         
     df['例句'] = df['例句'].fillna('')
     df = df.dropna(subset=['成語', '解釋'])
-    # 應用新分類
     df['魔法學科'] = df.apply(sorting_hat, axis=1)
     return df
 
 df = load_data()
 
-# --- 4. 遊戲狀態與升級設定 ---
+# --- 4. 遊戲狀態與使用者管理 ---
 
-# 等級設定 (年級)
 LEVELS = {
     1: {"name": "一年級", "type": "def", "target": 90, "streak_req": 20, "desc": "解釋題"},
     2: {"name": "三年級", "type": "sent", "target": 70, "streak_req": 15, "desc": "例句題"},
     3: {"name": "五年級", "type": "fill", "target": 50, "streak_req": 10, "desc": "填空題"},
-    4: {"name": "七年級", "type": "chal", "target": 50, "streak_req": 0, "desc": "挑戰題 (全默寫)"}
+    4: {"name": "七年級", "type": "chal", "target": 50, "streak_req": 0, "desc": "挑戰題"}
 }
 
-if 'init' not in st.session_state:
-    st.session_state.init = True
-    st.session_state.level = 1
-    st.session_state.xp = 0
-    st.session_state.hp = 10
-    st.session_state.last_hp_time = time.time()
-    
-    # 進度追蹤
-    st.session_state.level_correct = 0  # 當前等級答對總數
-    st.session_state.streak = 0         # 當前連對數
-    st.session_state.max_streak = 0     # 本級最大連對
-    
-    st.session_state.badges = []
-    st.session_state.history = []
-    st.session_state.wrong_list = []
-    
-    # 遊戲流程控制
-    st.session_state.current_q = None
-    st.session_state.last_result = None # 儲存上一題結果以顯示回饋
-    st.session_state.show_cert = False  # 是否顯示證書
-    st.session_state.cert_type = None   # "level_up" or "master"
+# 多使用者資料庫 (模擬)
+if 'user_db' not in st.session_state:
+    st.session_state.user_db = {} 
 
-# 體力回復
-def recover_hp():
-    now = time.time()
-    elapsed = now - st.session_state.last_hp_time
-    rec = int(elapsed // 1800) # 30分
-    if rec > 0:
-        if st.session_state.hp < 10:
-            st.session_state.hp = min(10, st.session_state.hp + rec)
-        st.session_state.last_hp_time = now - (elapsed % 1800)
-recover_hp()
+if 'current_user' not in st.session_state:
+    st.session_state.current_user = None
 
-# --- 5. 核心邏輯函式 ---
+# 初始化單一使用者結構
+def init_user(name):
+    if name not in st.session_state.user_db:
+        st.session_state.user_db[name] = {
+            'level': 1,
+            'xp': 0,
+            'hp': 10,
+            'last_hp_time': time.time(),
+            'level_correct': 0,
+            'streak': 0,
+            'max_streak': 0,
+            'badges': [],
+            'history': [],
+            'wrong_list': []
+        }
 
-def check_progress():
-    lvl = st.session_state.level
-    cfg = LEVELS[lvl]
+# 取得當前使用者資料的 Helper
+def get_user_data():
+    name = st.session_state.current_user
+    if name:
+        return st.session_state.user_db[name]
+    return None
+
+# 體力回復邏輯 (針對當前使用者)
+def recover_hp_logic():
+    ud = get_user_data()
+    if ud:
+        now = time.time()
+        elapsed = now - ud['last_hp_time']
+        rec = int(elapsed // 1800) # 30分鐘
+        if rec > 0:
+            if ud['hp'] < 10:
+                ud['hp'] = min(10, ud['hp'] + rec)
+                st.toast(f"💖 {st.session_state.current_user} 的體力回復了！")
+            ud['last_hp_time'] = now - (elapsed % 1800)
+
+# --- 5. 側邊欄：登入與狀態 ---
+
+with st.sidebar:
+    st.markdown("<h1 style='text-align: center;'>🏰 霍格華茲</h1>", unsafe_allow_html=True)
     
-    # 檢查是否滿足升級/通關條件
-    cond_total = st.session_state.level_correct >= cfg['target']
-    cond_streak = st.session_state.streak >= cfg['streak_req'] # 七年級 streak_req 為 0，自動為 True
-    
-    if cond_total and cond_streak:
-        st.session_state.show_cert = True
-        if lvl == 4:
-            st.session_state.cert_type = "master"
-        else:
-            st.session_state.cert_type = "level_up"
+    # 使用者切換
+    input_name = st.text_input("巫師姓名 (輸入後按 Enter)", placeholder="請輸入名字...")
+    if input_name:
+        clean_name = input_name.strip()
+        if clean_name:
+            if st.session_state.current_user != clean_name:
+                init_user(clean_name)
+                st.session_state.current_user = clean_name
+                st.session_state.current_q = None # 切換人要重置題目
+                st.rerun()
 
-def proceed_level():
-    """ 點擊證書上的繼續按鈕後執行 """
-    if st.session_state.cert_type == "level_up":
-        st.session_state.level += 1
-        # 重置當前等級進度
-        st.session_state.level_correct = 0
-        st.session_state.streak = 0
-        st.session_state.show_cert = False
-        st.session_state.current_q = None
-        st.rerun()
-    elif st.session_state.cert_type == "master":
-        # 通關處理
-        subject = st.session_state.current_subject
-        if f"{subject}大師" not in st.session_state.badges:
-            st.session_state.badges.append(f"{subject}大師")
-        st.session_state.show_cert = False
-        st.session_state.level_correct = 0 # 可以選擇讓他們無限玩，或重置
-        st.rerun()
+    # 如果已登入
+    if st.session_state.current_user:
+        ud = st.session_state.user_db[st.session_state.current_user]
+        recover_hp_logic() # 檢查回血
+        
+        st.markdown(f"### 🧙‍♂️ {st.session_state.current_user}")
+        
+        # 體力顯示
+        hp = ud['hp']
+        hearts = "❤️" * hp + "🤍" * (10 - hp)
+        st.markdown(f"<div style='font-size:20px;'>{hearts}</div>", unsafe_allow_html=True)
+        st.caption(f"生命值: {hp}/10 (每30分回復1點)")
+        
+        st.markdown("---")
+        
+        # 選課系統
+        subjects = ["全部學科"] + sorted(list(df['魔法學科'].unique()))
+        
+        # 初始化選課狀態
+        if 'selected_subject' not in st.session_state:
+            st.session_state.selected_subject = "全部學科"
+            
+        new_subject = st.selectbox("📚 選擇選修課程", subjects, index=subjects.index(st.session_state.selected_subject) if st.session_state.selected_subject in subjects else 0)
+        
+        # 偵測學科切換 -> 重置題目
+        if new_subject != st.session_state.selected_subject:
+            st.session_state.selected_subject = new_subject
+            st.session_state.current_q = None
+            st.rerun()
+            
+        st.markdown("---")
+        
+        # 進度
+        lvl = ud['level']
+        cfg = LEVELS[lvl]
+        st.write(f"🎓 **{cfg['name']}** ({cfg['desc']})")
+        
+        # 進度條
+        c_total = ud['level_correct']
+        t_total = cfg['target']
+        st.write(f"✅ 累積答對：{c_total}/{t_total}")
+        st.progress(min(1.0, c_total/t_total))
+        
+        if cfg['streak_req'] > 0:
+            c_streak = ud['streak']
+            t_streak = cfg['streak_req']
+            st.write(f"🔥 連續答對：{c_streak}/{t_streak}")
+            st.progress(min(1.0, c_streak/t_streak))
+            
+    else:
+        st.info("請先輸入姓名以開始入學。")
+        st.stop() # 未登入則停止渲染主畫面
+
+# --- 6. 題目生成邏輯 ---
 
 def generate_question(subject):
     if df.empty: return None
     
-    # 篩選學科
     pool = df
     if subject != "全部學科":
         pool = df[df['魔法學科'] == subject]
         if pool.empty:
-            st.toast(f"⚠️ {subject} 的考題不足，暫時使用全部題庫。", icon="🧙‍♂️")
-            pool = df
+            pool = df # Fallback
+            
+    ud = get_user_data()
+    lvl_type = LEVELS[ud['level']]['type']
     
-    # 根據等級選題型
-    lvl_type = LEVELS[st.session_state.level]['type']
-    
-    # 取題
     if lvl_type == 'sent':
         pool = pool[pool['例句'] != '']
         if pool.empty: pool = df
         
     row = pool.sample(1).iloc[0]
+    q = {'row': row, 'type': lvl_type, 'ans': row['成語'], 'options': []}
     
-    q = {
-        'row': row,
-        'type': lvl_type,
-        'ans': row['成語'],
-        'options': []
-    }
-    
-    # 構建題目內容
-    if lvl_type == 'def': # 一年級
+    if lvl_type == 'def':
         q['text'] = f"🔮 **【解釋】**：{row['解釋']}"
         opts = df[df['成語'] != row['成語']].sample(3)['成語'].tolist() + [row['成語']]
         random.shuffle(opts)
         q['options'] = opts
-        
-    elif lvl_type == 'sent': # 三年級
+    elif lvl_type == 'sent':
         sent = row['例句'].replace(row['成語'], '______')
         q['text'] = f"📜 **【例句】**：{sent}"
         opts = df[df['成語'] != row['成語']].sample(3)['成語'].tolist() + [row['成語']]
         random.shuffle(opts)
         q['options'] = opts
-        
-    elif lvl_type == 'fill': # 五年級
+    elif lvl_type == 'fill':
         chars = list(row['成語'])
         if len(chars) >= 4:
             mask = random.randint(0, 3)
-            ans_char = chars[mask]
+            q['ans'] = chars[mask]
             chars[mask] = '❓'
-            q['text'] = f"🧩 **【填空】**：{''.join(chars)}\n\n(提示：{row['解釋']})"
-            q['ans'] = ans_char # 答案改為單字
+            q['text'] = f"🧩 **【填空】**：{''.join(chars)}\n(提示：{row['解釋']})"
             q['full'] = row['成語']
-        else:
-            return generate_question(subject) # 遞迴重抽
-            
-    elif lvl_type == 'chal': # 七年級
-        q['text'] = f"🔥 **【終極挑戰】**：請寫出符合此解釋的成語\n\n{row['解釋']}"
+        else: return generate_question(subject)
+    elif lvl_type == 'chal':
+        q['text'] = f"🔥 **【終極挑戰】**：請寫出符合此解釋的成語\n{row['解釋']}"
         
     return q
 
-# --- 6. 介面佈局 ---
+# --- 7. 主畫面 ---
 
-# 側邊欄：巫師狀態
-with st.sidebar:
-    st.header("🏰 巫師檔案")
-    
-    # 體力
-    hp = st.session_state.hp
-    st.markdown(f"<div style='font-size:20px; color:#c62828'>{'❤️'*hp}{'🤍'*(10-hp)}</div>", unsafe_allow_html=True)
-    st.caption(f"生命值: {hp}/10 (每30分回復1點)")
-    
-    st.markdown("---")
-    
-    # 選課系統
-    subjects = ["全部學科"] + sorted(list(df['魔法學科'].unique()))
-    selected_subject = st.selectbox("📚 選擇選修課程", subjects)
-    st.session_state.current_subject = selected_subject # 存入狀態以供證書使用
-    
-    st.markdown("---")
-    
-    # 升級進度顯示
-    lvl = st.session_state.level
-    cfg = LEVELS[lvl]
-    st.subheader(f"🎓 {cfg['name']}")
-    st.caption(f"測驗內容：{cfg['desc']}")
-    
-    # 進度條 1: 總答對數
-    curr_total = st.session_state.level_correct
-    req_total = cfg['target']
-    st.write(f"✅ 累積答對：{curr_total} / {req_total}")
-    prog1 = min(1.0, curr_total / req_total)
-    st.progress(prog1)
-    
-    # 進度條 2: 連續答對
-    if cfg['streak_req'] > 0:
-        curr_streak = st.session_state.streak
-        req_streak = cfg['streak_req']
-        st.write(f"🔥 連續答對：{curr_streak} / {req_streak}")
-        prog2 = min(1.0, curr_streak / req_streak)
-        st.progress(prog2)
-    else:
-        st.info("🔥 七年級不需連續答對，只需累積題數！")
+# 分頁
+tab1, tab2, tab3 = st.tabs(["⚡ 咒語修練", "🏆 學院布告欄", "🔮 錯題儲思盆"])
 
-    st.markdown("---")
-    st.subheader("🏅 榮譽徽章")
-    for b in st.session_state.badges:
-        st.write(f"🛡️ {b}")
+if 'last_result' not in st.session_state: st.session_state.last_result = None
+if 'show_cert' not in st.session_state: st.session_state.show_cert = False
 
-# 主畫面邏輯
-st.title("🧙‍♂️ 霍格華茲成語魔法學院")
-
-# 1. 顯示證書 (最高優先級)
-if st.session_state.show_cert:
-    if st.session_state.cert_type == "level_up":
-        cert_title = "✨ 升級證書 ✨"
-        cert_msg = f"""
-        茲證明 <b>傑出的巫師</b><br>
-        已成功通過 <b>{LEVELS[st.session_state.level]['name']}</b> 的嚴苛試煉。<br>
-        展現了非凡的智慧與毅力！
-        """
-        btn_txt = "晉升下一年級"
-    else:
-        cert_title = "🏆 宗師證書 🏆"
-        cert_msg = f"""
-        至高無上的榮耀！<br>
-        恭喜您完全精通了 <b>{st.session_state.current_subject}</b><br>
-        並完成了七年級的所有挑戰。<br>
-        您已成為該領域的魔法大師！
-        """
-        btn_txt = "領取徽章並繼續修練"
-
-    st.markdown(f"""
-    <div class="certificate-box">
-        <div class="cert-title">{cert_title}</div>
-        <div class="cert-body">{cert_msg}</div>
-        <div class="cert-signature">霍格華茲校長室 頒發<br>{datetime.now().strftime('%Y-%m-%d')}</div>
-    </div>
-    """, unsafe_allow_html=True)
+# [Tab 1] 遊戲區
+with tab1:
+    ud = get_user_data()
     
-    if st.button(btn_txt, use_container_width=True):
-        proceed_level()
-
-# 2. 正常遊戲畫面
-else:
-    # 顯示上一題的結果 (Feedback)
-    if st.session_state.last_result:
-        res = st.session_state.last_result
-        if res['correct']:
-            st.markdown(f'<div class="success-msg">✨ 咒語生效！ (正確) +Streak</div>', unsafe_allow_html=True)
+    # 顯示證書
+    if st.session_state.show_cert:
+        cert_type = st.session_state.get('cert_type')
+        if cert_type == "level_up":
+            title = "✨ 升級證書 ✨"
+            body = f"恭喜 {st.session_state.current_user} 通過 {LEVELS[ud['level']]['name']} 考驗！"
+            btn = "晉升下一年級"
         else:
-            st.markdown(f"""
-            <div class="error-box">
-                💥 魔杖逆火... (錯誤)<br>
-                題目：{res['q_text']}<br>
-                <div class="correct-ans">正確答案是：{res['ans']}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        st.session_state.last_result = None # 清除結果
+            title = "🏆 宗師證書 🏆"
+            body = f"恭喜 {st.session_state.current_user} 成為 {st.session_state.selected_subject} 大師！"
+            btn = "領取徽章"
+            
+        st.markdown(f"""<div class="certificate-box"><div class="magic-font" style="font-size:3em; color:#740001;">{title}</div><p style="font-size:1.5em;">{body}</p></div>""", unsafe_allow_html=True)
+        
+        if st.button(btn, use_container_width=True):
+            if cert_type == "level_up":
+                ud['level'] += 1
+                ud['level_correct'] = 0
+                ud['streak'] = 0
+            else: # master
+                badge = f"{st.session_state.selected_subject}大師"
+                if badge not in ud['badges']: ud['badges'].append(badge)
+                ud['level_correct'] = 0 # 重置七年級進度或保留皆可
+                
+            st.session_state.show_cert = False
+            st.session_state.current_q = None
+            st.rerun()
 
-    # 檢查體力
-    if st.session_state.hp <= 0:
-        st.error("💀 體力耗盡！請休息一下等待回復。")
     else:
-        # 生成題目
-        if st.session_state.current_q is None:
-            st.session_state.current_q = generate_question(st.session_state.current_subject)
-        
-        q = st.session_state.current_q
-        
-        if q:
-            st.markdown(f"### {q['text']}")
+        # 回饋顯示區
+        if st.session_state.last_result:
+            res = st.session_state.last_result
+            if res['correct']:
+                st.markdown(f'<div class="success-msg">✨ 咒語生效！ (體力維持)</div>', unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div class="error-box">
+                    💥 魔杖逆火... (體力 -1)<br>
+                    題目：{res['q_text']}<br>
+                    <div class="correct-ans">正確答案：{res['ans']}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            st.session_state.last_result = None
+
+        # 體力檢查
+        if ud['hp'] <= 0:
+            st.error("💀 體力耗盡！請休息一下。")
+        else:
+            # 題目生成
+            if st.session_state.current_q is None:
+                st.session_state.current_q = generate_question(st.session_state.selected_subject)
             
-            # 輸入區
-            user_input = None
-            submit = False
-            
-            with st.form("ans_form"):
-                if q['type'] in ['def', 'sent']:
-                    user_input = st.radio("請選擇：", q['options'])
-                elif q['type'] == 'fill':
-                    user_input = st.text_input("請輸入缺少的字：", max_chars=1)
-                elif q['type'] == 'chal':
-                    user_input = st.text_input("請輸入完整成語：")
+            q = st.session_state.current_q
+            if q:
+                st.markdown(f"### {q['text']}")
                 
-                submit = st.form_submit_button("🪄 施法 (消耗1體力)")
-            
-            if submit:
-                # 扣體力
-                st.session_state.hp -= 1
-                
-                # 判定
-                is_correct = False
-                if user_input:
-                    ans_clean = user_input.strip()
-                    correct_ans = q['ans']
+                with st.form("game_form"):
+                    if q['type'] in ['def', 'sent']:
+                        ans = st.radio("選擇：", q['options'])
+                    elif q['type'] == 'fill':
+                        ans = st.text_input("輸入缺字：", max_chars=1)
+                    elif q['type'] == 'chal':
+                        ans = st.text_input("輸入成語：")
                     
-                    if ans_clean == correct_ans:
-                        is_correct = True
-                        st.session_state.level_correct += 1
-                        st.session_state.streak += 1
-                        if st.session_state.streak > st.session_state.max_streak:
-                            st.session_state.max_streak = st.session_state.streak
-                    else:
-                        st.session_state.streak = 0 # 重置連對
-                        st.session_state.wrong_list.append({
-                            "題目": q['row']['成語'],
-                            "正確答案": q['ans']
-                        })
+                    submitted = st.form_submit_button("🪄 施法 (消耗1體力)")
+                    
+                if submitted:
+                    ud['hp'] -= 1
+                    is_correct = False
+                    if ans:
+                        if ans.strip() == q['ans']:
+                            is_correct = True
+                            ud['hp'] += 1 # 補回
+                            ud['xp'] += 10
+                            ud['level_correct'] += 1
+                            ud['streak'] += 1
+                            if ud['streak'] > ud['max_streak']: ud['max_streak'] = ud['streak']
+                        else:
+                            ud['streak'] = 0
+                            ud['wrong_list'].append({'成語': q['row']['成語'], '錯誤答案': ans})
+                    
+                    # 記錄回饋
+                    st.session_state.last_result = {
+                        'correct': is_correct,
+                        'ans': q['ans'],
+                        'q_text': q['row']['解釋'] if q['type'] == 'chal' else q['row']['成語']
+                    }
+                    
+                    # 檢查升級
+                    cfg = LEVELS[ud['level']]
+                    if ud['level_correct'] >= cfg['target'] and ud['streak'] >= cfg['streak_req']:
+                        st.session_state.show_cert = True
+                        st.session_state.cert_type = "master" if ud['level'] == 4 else "level_up"
+                    
+                    st.session_state.current_q = None
+                    st.rerun()
 
-                # 記錄結果給 Feedback 區塊顯示
-                st.session_state.last_result = {
-                    'correct': is_correct,
-                    'ans': q['ans'],
-                    'q_text': q['row']['解釋'] if q['type'] == 'chal' else q['row']['成語']
-                }
-                
-                # 檢查是否升級
-                check_progress()
-                
-                # 換下一題
-                st.session_state.current_q = None
-                st.rerun()
+# [Tab 2] 排名
+with tab2:
+    st.markdown("<h2 class='magic-font'>🏆 霍格華茲風雲榜</h2>", unsafe_allow_html=True)
+    if st.session_state.user_db:
+        data = []
+        for name, stats in st.session_state.user_db.items():
+            data.append({
+                "巫師": name,
+                "年級": LEVELS[stats['level']]['name'],
+                "總經驗 (XP)": stats['xp'],
+                "最高連對": stats['max_streak'],
+                "徽章數": len(stats['badges'])
+            })
+        rank_df = pd.DataFrame(data).sort_values(by="總經驗 (XP)", ascending=False)
+        st.dataframe(rank_df, use_container_width=True, hide_index=True)
+    else:
+        st.write("目前還沒有學生入學。")
 
-# --- 頁尾 ---
-with st.expander("🔮 儲思盆 (錯題紀錄)"):
-    if st.session_state.wrong_list:
-        st.table(pd.DataFrame(st.session_state.wrong_list))
-        if st.button("清空記憶"):
-            st.session_state.wrong_list = []
+# [Tab 3] 錯題
+with tab3:
+    ud = get_user_data()
+    if ud['wrong_list']:
+        st.table(pd.DataFrame(ud['wrong_list']))
+        if st.button("清空儲思盆"):
+            ud['wrong_list'] = []
             st.rerun()
     else:
-        st.write("目前沒有錯題紀錄。")
+        st.write("你的儲思盆很乾淨！")
