@@ -9,10 +9,10 @@ import json
 from pypinyin import pinyin, Style
 
 # ==========================================
-# ⚙️ 設定區
+# 🛑 務必修改區：請填入您的 Google 試算表網址
 # ==========================================
-SHEET_URL = "https://docs.google.com/spreadsheets/d/XXXXXXXXXXXXXXXXXXXXXXXX/edit" 
-# (⬆️ 請替換您的網址)
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1kE47tRqR9YXT9C3Jn0nch4jKK8p4E6PqgFibhRcnNKA/edit?gid=0#gid=0"
+# (⬆️ 請將上方 XXXXX... 換成您的真實網址！)
 
 # --- 1. CSS 風格 ---
 st.set_page_config(page_title="霍格華茲成語魔法學院", page_icon="🏰", layout="wide")
@@ -29,23 +29,20 @@ st.markdown("""
     section[data-testid="stSidebar"] label { color: #ffffff !important; font-weight: bold; font-size: 1.1em; }
     section[data-testid="stSidebar"] p, section[data-testid="stSidebar"] div, section[data-testid="stSidebar"] span { color: #e0e0e0; }
     
-    /* 進度條文字 */
+    /* 進度條 */
     .progress-label { font-weight: bold; color: #ffffff !important; margin-bottom: -5px; margin-top: 10px; }
     
-    /* 按鈕與圖示 */
+    /* 按鈕 */
     .stButton>button { 
         color: #d3a625; background-color: #740001; border: 2px solid #d3a625; 
-        font-weight: bold; border-radius: 8px; font-family: 'Noto Serif TC', serif;
+        font-weight: bold; border-radius: 8px; font-family: 'Noto Serif TC', serif; width: 100%;
     }
     .stButton>button:hover { background-color: #5d0000; border-color: #ffcc00; }
     
-    /* 訊息框 */
+    /* 訊息與卡片 */
     .certificate-box { border: 5px double #d3a625; padding: 30px; background-color: #fffbf0; text-align: center; margin: 20px 0; box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
     .success-msg { padding:15px; background-color:#d4edda; color:#155724; border-left: 5px solid #28a745; font-weight:bold; font-size: 1.2em; }
     .error-box { padding:15px; background-color:#f8d7da; color:#721c24; border-left: 5px solid #dc3545; font-size: 1.2em;}
-    .warning-box { padding:15px; background-color:#fff3cd; color:#856404; border-left: 5px solid #ffeeba; font-weight:bold; margin-bottom: 10px;}
-    
-    /* 詳解卡 */
     .zhuyin { font-size: 0.9em; color: #555; font-family: sans-serif; }
 </style>
 """, unsafe_allow_html=True)
@@ -58,7 +55,7 @@ def get_zhuyin(text):
         return " ".join([item[0] for item in result])
     except: return ""
 
-# --- 3. Google Sheets 連線 (修復 Header Error) ---
+# --- 3. Google Sheets 連線 ---
 @st.cache_resource
 def get_gsheet_client():
     try:
@@ -77,40 +74,32 @@ def load_db_from_sheet():
     
     try:
         sheet = client.open_by_url(SHEET_URL).sheet1
-        # ★ 改用 get_all_values 避免 Header Duplicates 錯誤 ★
         all_values = sheet.get_all_values()
         
         if not all_values: return {}
         
-        headers = all_values[0] # 第一列是標題
-        rows = all_values[1:]   # 其餘是資料
+        headers = all_values[0] 
+        rows = all_values[1:]
         
-        # 建立標題索引對照表 (忽略空白標題)
         col_map = {h: i for i, h in enumerate(headers) if h.strip()}
         
         user_db = {}
         for row in rows:
-            # 確保有 Name 欄位
             if 'Name' not in col_map: continue
             name_idx = col_map['Name']
             if name_idx >= len(row) or not row[name_idx]: continue
             
             name = str(row[name_idx]).strip()
             
-            # 安全讀取 Helper
             def get_val(col_name, default):
                 if col_name not in col_map: return default
                 idx = col_map[col_name]
-                if idx < len(row) and row[idx] != "":
-                    return row[idx]
+                if idx < len(row) and row[idx] != "": return row[idx]
                 return default
 
-            # 解析 Subject_Stats (JSON)
             stats_json = get_val('Subject_Stats', '{}')
-            try:
-                subject_stats = json.loads(stats_json)
-            except:
-                subject_stats = {}
+            try: subject_stats = json.loads(stats_json)
+            except: subject_stats = {}
 
             user_db[name] = {
                 'password': str(get_val('Password', '')),
@@ -119,12 +108,16 @@ def load_db_from_sheet():
                 'last_hp_time': float(get_val('Last_HP_Time', time.time())),
                 'badges': str(get_val('Badges', '')).split(',') if get_val('Badges', '') else [],
                 'wrong_list': eval(str(get_val('Wrong_List', '[]'))),
-                'subject_stats': subject_stats # 分科數據
+                'subject_stats': subject_stats
             }
         return user_db
         
     except Exception as e:
-        st.error(f"⚠️ 讀取錯誤：{e}")
+        # 這裡會捕捉 404 錯誤
+        if "404" in str(e):
+            st.error("❌ 找不到試算表！請檢查程式碼第 15 行的 SHEET_URL 是否正確。")
+        else:
+            st.error(f"⚠️ 讀取錯誤：{e}")
         return {}
 
 def save_user_to_sheet(name, data):
@@ -133,7 +126,6 @@ def save_user_to_sheet(name, data):
     try:
         sheet = client.open_by_url(SHEET_URL).sheet1
         
-        # 準備資料
         stats_json = json.dumps(data['subject_stats'], ensure_ascii=False)
         row_data = [
             name,
@@ -146,7 +138,6 @@ def save_user_to_sheet(name, data):
             stats_json
         ]
         
-        # 尋找並更新 (使用 gspread 的 cell finder)
         try:
             cell = sheet.find(name)
             for i, val in enumerate(row_data):
@@ -202,7 +193,6 @@ def load_idioms():
 
 df = load_idioms()
 
-# --- 5. 等級設定 ---
 LEVELS = {
     1: {"name": "一年級", "type": "def", "target": 90, "streak_req": 20, "desc": "解釋題"},
     2: {"name": "三年級", "type": "sent", "target": 70, "streak_req": 15, "desc": "例句題"},
@@ -210,13 +200,15 @@ LEVELS = {
     4: {"name": "七年級", "type": "chal", "target": 50, "streak_req": 0, "desc": "挑戰題"}
 }
 
-# --- 6. 使用者狀態管理 ---
+# --- 5. Session State 初始化 ---
 if 'user_db' not in st.session_state:
     st.session_state.user_db = load_db_from_sheet()
 if 'current_user' not in st.session_state:
     st.session_state.current_user = None
 if 'is_logged_in' not in st.session_state:
     st.session_state.is_logged_in = False
+if 'waiting_for_next' not in st.session_state:
+    st.session_state.waiting_for_next = False # 控制「下一題」按鈕狀態
 
 def get_user_data():
     if st.session_state.current_user:
@@ -224,12 +216,9 @@ def get_user_data():
     return None
 
 def get_subject_stats(ud, subject):
-    """取得特定科目的統計資料，若無則初始化"""
     if 'subject_stats' not in ud: ud['subject_stats'] = {}
     if subject not in ud['subject_stats']:
-        ud['subject_stats'][subject] = {
-            'level': 1, 'level_correct': 0, 'streak': 0, 'max_streak': 0
-        }
+        ud['subject_stats'][subject] = {'level': 1, 'level_correct': 0, 'streak': 0, 'max_streak': 0}
     return ud['subject_stats'][subject]
 
 def update_subject_stats(ud, subject, new_stats):
@@ -238,30 +227,28 @@ def update_subject_stats(ud, subject, new_stats):
 
 def register_user(name, password):
     if name in st.session_state.user_db:
-        return False, "名字已被使用"
+        return False, "⚠️ 名字已被使用，請換一個。"
     if not (password.isdigit() and 4 <= len(password) <= 6):
-        return False, "密碼須為 4-6 位數字"
+        return False, "⚠️ 密碼格式錯誤 (請輸入 4-6 位數字)。"
     
     new_user = {
         'password': password,
         'xp': 0, 'hp': 10, 'last_hp_time': time.time(),
         'badges': [], 'wrong_list': [],
-        'subject_stats': {} # 初始化空的學科數據
+        'subject_stats': {} 
     }
     st.session_state.user_db[name] = new_user
     save_user_to_sheet(name, new_user)
-    return True, "註冊成功"
+    return True, "✅ 註冊成功！請至「登入」分頁使用新帳號登入。"
 
-# --- 7. 題目生成 ---
 def generate_question(subject):
     if df.empty: return None
     pool = df if subject == "全部學科" else df[df['魔法學科'] == subject]
     if pool.empty: pool = df
     
-    # 決定題型：根據該科目的等級，如果是全部學科則隨機或預設
     ud = get_user_data()
     if subject == "全部學科":
-        lvl = 1 # 練習模式預設簡單，或可隨機
+        lvl = 1
         lvl_type = "def"
     else:
         stats = get_subject_stats(ud, subject)
@@ -299,8 +286,7 @@ def generate_question(subject):
         q['text'] = f"🔥 **【終極挑戰】**：請寫出符合此解釋的成語\n{row['解釋']}"
     return q
 
-# --- 8. 介面邏輯 ---
-
+# --- 6. 介面邏輯 ---
 with st.sidebar:
     st.markdown("<h1 style='text-align: center;'>🏰 霍格華茲</h1>", unsafe_allow_html=True)
     
@@ -309,6 +295,7 @@ with st.sidebar:
         tab_login, tab_reg = st.tabs(["登入", "註冊"])
         
         with tab_login:
+            # 重新從 DB 獲取名單，確保註冊後看得到
             users = ["請選擇..."] + list(st.session_state.user_db.keys())
             login_name = st.selectbox("巫師姓名", users)
             login_pw = st.text_input("通關密語", type="password", key="l_pw")
@@ -318,6 +305,7 @@ with st.sidebar:
                     if u_data and str(u_data['password']) == str(login_pw):
                         st.session_state.current_user = login_name
                         st.session_state.is_logged_in = True
+                        st.session_state.waiting_for_next = False
                         st.toast(f"歡迎回來，{login_name}！")
                         st.rerun()
                     else:
@@ -330,14 +318,12 @@ with st.sidebar:
                 if reg_name and reg_pw:
                     ok, msg = register_user(reg_name, reg_pw)
                     if ok:
-                        st.success("註冊成功！請至登入頁面登入。")
-                        time.sleep(1)
-                        st.rerun()
+                        st.success(msg)
                     else:
                         st.error(msg)
     
     else:
-        # 已登入狀態
+        # 已登入
         ud = get_user_data()
         
         # 體力回復
@@ -368,11 +354,12 @@ with st.sidebar:
         if new_subject != st.session_state.selected_subject:
             st.session_state.selected_subject = new_subject
             st.session_state.current_q = None
+            st.session_state.waiting_for_next = False
             st.rerun()
             
         st.markdown("---")
         
-        # ★★★ 分科進度顯示 ★★★
+        # 分科進度
         if st.session_state.selected_subject == "全部學科":
             st.warning("⚠️ 自由練習模式：不計入升級考核")
         else:
@@ -393,10 +380,8 @@ with st.sidebar:
                 c_streak = s_stats['streak']
                 st.markdown(f"<p class='progress-label'>🔥 連續答對：{c_streak} / {req_streak}</p>", unsafe_allow_html=True)
                 st.progress(min(1.0, c_streak/req_streak))
-            else:
-                st.info("🔥 此等級只需累積題數")
 
-# --- 9. 主畫面 ---
+# --- 7. 主畫面 ---
 tab1, tab2, tab3 = st.tabs(["⚡ 咒語修練", "🏆 學院布告欄", "🔮 錯題儲思盆"])
 
 if 'last_result' not in st.session_state: st.session_state.last_result = None
@@ -409,7 +394,7 @@ with tab1:
         ud = get_user_data()
         subj = st.session_state.selected_subject
         
-        # 1. 顯示證書
+        # 狀態：顯示證書
         if st.session_state.show_cert:
             cert_type = st.session_state.get('cert_type')
             if cert_type == "level_up":
@@ -428,34 +413,40 @@ with tab1:
                     badge = f"{subj}大師"
                     if badge not in ud['badges']: ud['badges'].append(badge)
                 
-                update_subject_stats(ud, subj, s_stats) # 存檔
+                update_subject_stats(ud, subj, s_stats)
                 st.session_state.show_cert = False
                 st.session_state.current_q = None
+                st.session_state.waiting_for_next = False
                 st.rerun()
         
-        else:
-            # 2. 結果與詳解
-            if st.session_state.last_result:
-                res = st.session_state.last_result
-                row = res['row_data']
-                if res['correct']:
-                    st.markdown(f'<div class="success-msg">✨ 咒語生效！</div>', unsafe_allow_html=True)
-                else:
-                    st.markdown(f"""<div class="error-box">💥 錯誤...<br><div class="correct-ans">正確答案：{res['ans']}</div></div>""", unsafe_allow_html=True)
-                
-                with st.expander("📖 查看成語詳解", expanded=True):
-                    zhuyin_text = get_zhuyin(row['成語'])
-                    st.markdown(f"<h3 style='margin-bottom:0;'>{row['成語']} <span class='zhuyin'>{zhuyin_text}</span></h3>", unsafe_allow_html=True)
-                    st.write(f"**解釋**：{row['解釋']}")
-                    if row['例句']: st.write(f"**例句**：{row['例句']}")
-                    c1, c2 = st.columns(2)
-                    if row['近義詞']: c1.markdown(f"**近義詞**：`{row['近義詞']}`")
-                    if row['反義詞']: c2.markdown(f"**反義詞**：`{row['反義詞']}`")
-                
+        # 狀態：等待下一題 (顯示結果卡)
+        elif st.session_state.waiting_for_next and st.session_state.last_result:
+            res = st.session_state.last_result
+            row = res['row_data']
+            
+            if res['correct']:
+                st.markdown(f'<div class="success-msg">✨ 咒語生效！</div>', unsafe_allow_html=True)
+            else:
+                st.markdown(f"""<div class="error-box">💥 錯誤...<br><div class="correct-ans">正確答案：{res['ans']}</div></div>""", unsafe_allow_html=True)
+            
+            with st.expander("📖 查看成語詳解", expanded=True):
+                zhuyin_text = get_zhuyin(row['成語'])
+                st.markdown(f"<h3 style='margin-bottom:0;'>{row['成語']} <span class='zhuyin'>{zhuyin_text}</span></h3>", unsafe_allow_html=True)
+                st.write(f"**解釋**：{row['解釋']}")
+                if row['例句']: st.write(f"**例句**：{row['例句']}")
+                c1, c2 = st.columns(2)
+                if row['近義詞']: c1.markdown(f"**近義詞**：`{row['近義詞']}`")
+                if row['反義詞']: c2.markdown(f"**反義詞**：`{row['反義詞']}`")
+            
+            st.write("---")
+            if st.button("下一題 ➡️"):
                 st.session_state.last_result = None
-                st.write("---")
+                st.session_state.current_q = None
+                st.session_state.waiting_for_next = False
+                st.rerun()
 
-            # 3. 遊戲區
+        # 狀態：回答問題
+        else:
             if ud['hp'] <= 0:
                 st.error("💀 體力耗盡！請休息一下。")
             else:
@@ -480,7 +471,7 @@ with tab1:
                         elif q['type'] == 'chal': 
                             ans = st.text_input("成語：")
                         
-                        sub = st.form_submit_button("🪄 施法") # 確保圖示存在
+                        sub = st.form_submit_button("🪄 施法")
                     
                     if sub:
                         ud['hp'] -= 1
@@ -490,7 +481,6 @@ with tab1:
                             ud['hp'] += 1
                             ud['xp'] += 10
                             
-                            # 只有非「全部學科」才更新分科進度
                             if subj != "全部學科":
                                 s_stats = get_subject_stats(ud, subj)
                                 s_stats['level_correct'] += 1
@@ -509,6 +499,7 @@ with tab1:
                             save_user_to_sheet(st.session_state.current_user, ud)
                         
                         st.session_state.last_result = {'correct': corr, 'ans': q['ans'], 'row_data': q['row']}
+                        st.session_state.waiting_for_next = True # 進入等待下一題狀態
                         
                         # 檢查升級
                         if subj != "全部學科":
@@ -517,8 +508,8 @@ with tab1:
                             if s_stats['level_correct'] >= cfg['target'] and s_stats['streak'] >= cfg['streak_req']:
                                 st.session_state.show_cert = True
                                 st.session_state.cert_type = "master" if s_stats['level'] == 4 else "level_up"
+                                st.session_state.waiting_for_next = False # 如果升級，直接跳證書
                         
-                        st.session_state.current_q = None
                         st.rerun()
 
 with tab2:
@@ -530,12 +521,10 @@ with tab2:
     if db:
         data = []
         for name, s in db.items():
-            # 統計所有科目的總等級
             total_level = 0
             if 'subject_stats' in s:
                 for sub, stats in s['subject_stats'].items():
                     total_level += stats['level']
-            
             data.append({"巫師": name, "總XP": s['xp'], "徽章數": len(s['badges'])})
         df_rank = pd.DataFrame(data).sort_values("總XP", ascending=False)
         st.dataframe(df_rank, hide_index=True, use_container_width=True)
