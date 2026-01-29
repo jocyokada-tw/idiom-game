@@ -7,6 +7,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import json
 from pypinyin import pinyin, Style
+import re
 
 # ==========================================
 # 🛑 務必修改區
@@ -23,23 +24,18 @@ st.markdown("""
     .stApp { background-color: #f8f5e6; font-family: 'Noto Serif TC', serif; }
     h1, h2, h3, .magic-font { font-family: 'Ma Shan Zheng', cursive; color: #740001; }
     
-    /* 側邊欄 */
     section[data-testid="stSidebar"] { background-color: #262730; color: #ecf0f1; }
     section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2 { color: #f1c40f; }
     section[data-testid="stSidebar"] label { color: #ffffff !important; font-weight: bold; font-size: 1.1em; }
     section[data-testid="stSidebar"] p, section[data-testid="stSidebar"] div, section[data-testid="stSidebar"] span { color: #e0e0e0; }
     
-    /* 進度條 */
     .progress-label { font-weight: bold; color: #ffffff !important; margin-bottom: -5px; margin-top: 10px; }
-    
-    /* 按鈕 */
     .stButton>button { 
         color: #d3a625; background-color: #740001; border: 2px solid #d3a625; 
         font-weight: bold; border-radius: 8px; font-family: 'Noto Serif TC', serif; width: 100%;
     }
     .stButton>button:hover { background-color: #5d0000; border-color: #ffcc00; }
     
-    /* 首頁與卡片 */
     .welcome-box {
         background-color: #fffbf0; border: 2px dashed #740001; padding: 30px; 
         text-align: center; border-radius: 15px; margin-bottom: 20px;
@@ -56,13 +52,22 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. 工具函式 ---
+# --- 2. 工具函式：注音與檢測 ---
 def get_zhuyin(text):
     if not isinstance(text, str): return ""
     try:
         result = pinyin(text, style=Style.BOPOMOFO)
         return " ".join([item[0] for item in result])
     except: return ""
+
+def is_valid_zhuyin(text):
+    """檢查是否包含國字 (如果包含國字，代表 Excel 填錯了，要忽略)"""
+    if not text or not isinstance(text, str): return False
+    # 檢查是否包含中文字元範圍 (Unicode 4E00-9FFF)
+    for char in text:
+        if '\u4e00' <= char <= '\u9fa5':
+            return False # 包含國字，無效
+    return True # 沒有國字，視為有效注音
 
 # --- 3. Google Sheets 連線 ---
 @st.cache_resource
@@ -149,7 +154,7 @@ def save_user_to_sheet(name, data):
     except Exception as e:
         st.warning(f"連線錯誤: {e}")
 
-# --- 4. Session State 初始化 (置頂避免報錯) ---
+# --- 4. Session State 初始化 ---
 if 'user_db' not in st.session_state:
     st.session_state.user_db = load_db_from_sheet()
 if 'current_user' not in st.session_state:
@@ -166,7 +171,6 @@ if 'show_cert' not in st.session_state:
     st.session_state.show_cert = False
 if 'selected_subject' not in st.session_state:
     st.session_state.selected_subject = "全部學科"
-# ★ 新增狀態：是否正在上課 ★
 if 'is_playing' not in st.session_state:
     st.session_state.is_playing = False
 
@@ -273,22 +277,46 @@ def generate_question(subject):
         
     row = pool.sample(1).iloc[0]
     q = {'row': row, 'type': lvl_type, 'ans': row['成語'], 'options': [], 'level': lvl}
-    if '注音' in row and str(row['注音']).strip():
-        q['zhuyin'] = row['注音']
+    
+    # ★★★ 智慧注音判斷 ★★★
+    db_zhuyin = str(row.get('注音', '')).strip()
+    if is_valid_zhuyin(db_zhuyin):
+        q['zhuyin'] = db_zhuyin
     else:
         q['zhuyin'] = get_zhuyin(row['成語'])
+    # ★★★★★★★★★★★★★★★★
     
     if lvl_type == 'def':
-        q['text'] = f"🔮 **【解釋】**：{row['解釋']}"
+        # 近/反義詞出題機率
+        has_syn = '近義詞' in row and str(row['近義詞']).strip()
+        has_ant = '反義詞' in row and str(row['反義詞']).strip()
+        dice = random.randint(0, 100)
+        
+        if dice < 30 and has_syn:
+            syns = str(row['近義詞']).replace('，', ',').split(',')
+            target_syn = random.choice(syns).strip()
+            q['text'] = f"🔄 **【近義詞】**：請找出與 **「{target_syn}」** 意思相近的成語："
+            q['ans'] = row['成語']
+        elif dice > 70 and has_ant:
+            ants = str(row['反義詞']).replace('，', ',').split(',')
+            target_ant = random.choice(ants).strip()
+            q['text'] = f"⚡ **【反義詞】**：請找出與 **「{target_ant}」** 意思相反的成語："
+            q['ans'] = row['成語']
+        else:
+            q['text'] = f"🔮 **【解釋】**：{row['解釋']}"
+            q['ans'] = row['成語']
+
         opts = df[df['成語'] != row['成語']].sample(3)['成語'].tolist() + [row['成語']]
         random.shuffle(opts)
         q['options'] = opts
+
     elif lvl_type == 'sent':
         sent = row['例句'].replace(row['成語'], '______')
         q['text'] = f"📜 **【例句】**：{sent}"
         opts = df[df['成語'] != row['成語']].sample(3)['成語'].tolist() + [row['成語']]
         random.shuffle(opts)
         q['options'] = opts
+
     elif lvl_type == 'fill':
         chars = list(row['成語'])
         if len(chars) >= 4:
@@ -297,8 +325,10 @@ def generate_question(subject):
             chars[mask] = '❓'
             q['text'] = f"🧩 **【填空】**：{''.join(chars)}\n(提示：{row['解釋']})"
         else: return generate_question(subject)
+
     elif lvl_type == 'chal':
         q['text'] = f"🔥 **【終極挑戰】**：請寫出符合此解釋的成語\n{row['解釋']}"
+        
     return q
 
 # --- 6. 介面邏輯 ---
@@ -319,7 +349,7 @@ with st.sidebar:
                     if u_data and str(u_data['password']).replace("'", "") == str(login_pw):
                         st.session_state.current_user = login_name
                         st.session_state.is_logged_in = True
-                        st.session_state.is_playing = False # 登入後先去首頁
+                        st.session_state.is_playing = False
                         st.toast(f"歡迎回來，{login_name}！")
                         st.rerun()
                     else:
@@ -340,7 +370,6 @@ with st.sidebar:
                         st.error(msg)
     
     else:
-        # 已登入
         ud = get_user_data()
         now = time.time()
         elapsed = now - ud['last_hp_time']
@@ -373,10 +402,9 @@ with st.sidebar:
         
         if new_subject != st.session_state.selected_subject:
             st.session_state.selected_subject = new_subject
-            # 換科目要重置狀態
             st.session_state.current_q = None
             st.session_state.waiting_for_next = False
-            st.session_state.is_playing = False # 回到首頁
+            st.session_state.is_playing = False
             st.rerun()
             
         st.markdown("---")
@@ -414,7 +442,6 @@ with tab1:
         ud = get_user_data()
         subj = st.session_state.selected_subject
         
-        # 狀態：首頁 (Lobby)
         if not st.session_state.is_playing:
             st.markdown(f"""
             <div class="welcome-box">
@@ -433,13 +460,11 @@ with tab1:
                 st.markdown('<div class="stat-card"><h4>錯題待練</h4><h2>🔮 {}</h2></div>'.format(len(ud['wrong_list'])), unsafe_allow_html=True)
             
             st.write("")
-            if st.button("🚀 開始上課 (Start Class)", type="primary"):
+            if st.button("🚀 開始上課", type="primary"):
                 st.session_state.is_playing = True
                 st.rerun()
 
-        # 狀態：上課中 (Game Loop)
         else:
-            # 顯示證書
             if st.session_state.show_cert:
                 cert_type = st.session_state.get('cert_type')
                 if cert_type == "level_up":
@@ -464,7 +489,6 @@ with tab1:
                     st.session_state.waiting_for_next = False
                     st.rerun()
             
-            # 等待下一題 (結果卡)
             elif st.session_state.waiting_for_next and st.session_state.last_result:
                 res = st.session_state.last_result
                 row = res['row_data']
@@ -475,7 +499,10 @@ with tab1:
                     st.markdown(f"""<div class="error-box">💥 錯誤...<br><div class="correct-ans">正確答案：{res['ans']}</div></div>""", unsafe_allow_html=True)
                 
                 with st.expander("📖 查看成語詳解", expanded=True):
-                    zhuyin_text = row.get('注音') if '注音' in row and str(row.get('注音')).strip() else get_zhuyin(row['成語'])
+                    # ★★★ 智慧注音判斷 (結果卡) ★★★
+                    db_zhuyin = str(row.get('注音', '')).strip()
+                    zhuyin_text = db_zhuyin if is_valid_zhuyin(db_zhuyin) else get_zhuyin(row['成語'])
+                    
                     st.markdown(f"<h3 style='margin-bottom:0;'>{row['成語']} <span class='zhuyin'>{zhuyin_text}</span></h3>", unsafe_allow_html=True)
                     st.write(f"**解釋**：{row['解釋']}")
                     if row['例句']: st.write(f"**例句**：{row['例句']}")
@@ -490,9 +517,8 @@ with tab1:
                     st.session_state.waiting_for_next = False
                     st.rerun()
 
-            # 作答區
             else:
-                if st.button("🔙 下課休息 (回到大廳)"):
+                if st.button("🔙 下課休息"):
                     st.session_state.is_playing = False
                     st.session_state.current_q = None
                     st.rerun()
