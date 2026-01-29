@@ -330,6 +330,20 @@ with st.sidebar:
         else:
             st.info("🔥 此等級只需累積題數，不需連續答對！")
 
+# --- 放在 with st.sidebar: 的最下面測試 ---
+st.markdown("---")
+st.write("🔧 連線診斷：")
+client = get_gsheet_client()
+if client:
+    try:
+        sheet = client.open_by_url(SHEET_URL).sheet1
+        st.success(f"✅ 已連線到：{sheet.title}")
+        st.write(f"目前記錄數：{len(sheet.get_all_records())}")
+    except Exception as e:
+        st.error(f"❌ 連線失敗：{e}")
+else:
+    st.error("❌ 無法建立用戶端 (請檢查 Secrets)")
+
 # --- 7. 主畫面邏輯 ---
 tab1, tab2, tab3 = st.tabs(["⚡ 咒語修練", "🏆 學院布告欄", "🔮 錯題儲思盆"])
 
@@ -472,4 +486,5 @@ with tab3:
                 sync_data()
                 st.rerun()
         else: st.write("無錯題紀錄")
+
 
