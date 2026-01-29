@@ -9,7 +9,7 @@ import json
 from pypinyin import pinyin, Style # 新增自動注音套件
 
 # --- 設定：請將此網址換成你的 Google 試算表網址 ---
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1kE47tRqR9YXT9C3Jn0nch4jKK8p4E6PqgFibhRcnNKA/edit?gid=0#gid=0" 
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1kE47tRqR9YXT9C3Jn0nch4jKK8p4E6PqgFibhRcnNKA/edit" 
 # (記得替換上面這行！)
 
 # --- 1. 設定與風格 ---
@@ -472,3 +472,4 @@ with tab3:
                 sync_data()
                 st.rerun()
         else: st.write("無錯題紀錄")
+
