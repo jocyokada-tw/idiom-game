@@ -113,7 +113,6 @@ def load_db_from_sheet():
         return user_db
         
     except Exception as e:
-        # 這裡會捕捉 404 錯誤
         if "404" in str(e):
             st.error("❌ 找不到試算表！請檢查程式碼第 15 行的 SHEET_URL 是否正確。")
         else:
@@ -138,15 +137,25 @@ def save_user_to_sheet(name, data):
             stats_json
         ]
         
+        # ★★★ 修正點：改用 col_values 避免 CellNotFound 錯誤 ★★★
         try:
-            cell = sheet.find(name)
-            for i, val in enumerate(row_data):
-                sheet.update_cell(cell.row, i+1, val)
-        except gspread.exceptions.CellNotFound:
-            sheet.append_row(row_data)
+            # 讀取第一欄 (Name) 的所有值來比對
+            name_list = sheet.col_values(1)
+            
+            if name in name_list:
+                # 如果名字存在，取得列號 (index + 1 因為 list 從 0 開始，sheet 從 1 開始)
+                row_idx = name_list.index(name) + 1
+                for i, val in enumerate(row_data):
+                    sheet.update_cell(row_idx, i+1, val)
+            else:
+                # 如果名字不存在，新增一列
+                sheet.append_row(row_data)
+                
+        except Exception as inner_e:
+            st.warning(f"寫入單元格時發生錯誤: {inner_e}")
             
     except Exception as e:
-        st.warning(f"存檔失敗: {e}")
+        st.warning(f"存檔連線失敗: {e}")
 
 # --- 4. 資料載入與分類 ---
 def sorting_hat(idiom_row):
@@ -208,7 +217,7 @@ if 'current_user' not in st.session_state:
 if 'is_logged_in' not in st.session_state:
     st.session_state.is_logged_in = False
 if 'waiting_for_next' not in st.session_state:
-    st.session_state.waiting_for_next = False # 控制「下一題」按鈕狀態
+    st.session_state.waiting_for_next = False
 
 def get_user_data():
     if st.session_state.current_user:
@@ -295,7 +304,6 @@ with st.sidebar:
         tab_login, tab_reg = st.tabs(["登入", "註冊"])
         
         with tab_login:
-            # 重新從 DB 獲取名單，確保註冊後看得到
             users = ["請選擇..."] + list(st.session_state.user_db.keys())
             login_name = st.selectbox("巫師姓名", users)
             login_pw = st.text_input("通關密語", type="password", key="l_pw")
@@ -499,7 +507,7 @@ with tab1:
                             save_user_to_sheet(st.session_state.current_user, ud)
                         
                         st.session_state.last_result = {'correct': corr, 'ans': q['ans'], 'row_data': q['row']}
-                        st.session_state.waiting_for_next = True # 進入等待下一題狀態
+                        st.session_state.waiting_for_next = True 
                         
                         # 檢查升級
                         if subj != "全部學科":
@@ -508,7 +516,7 @@ with tab1:
                             if s_stats['level_correct'] >= cfg['target'] and s_stats['streak'] >= cfg['streak_req']:
                                 st.session_state.show_cert = True
                                 st.session_state.cert_type = "master" if s_stats['level'] == 4 else "level_up"
-                                st.session_state.waiting_for_next = False # 如果升級，直接跳證書
+                                st.session_state.waiting_for_next = False 
                         
                         st.rerun()
 
