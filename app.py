@@ -22,16 +22,33 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=Noto+Serif+TC:wght@400;700&display=swap');
     .stApp { background-color: #f8f5e6; font-family: 'Noto Serif TC', serif; }
     h1, h2, h3, .magic-font { font-family: 'Ma Shan Zheng', cursive; color: #740001; }
+    
+    /* 側邊欄 */
     section[data-testid="stSidebar"] { background-color: #262730; color: #ecf0f1; }
     section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2 { color: #f1c40f; }
     section[data-testid="stSidebar"] label { color: #ffffff !important; font-weight: bold; font-size: 1.1em; }
     section[data-testid="stSidebar"] p, section[data-testid="stSidebar"] div, section[data-testid="stSidebar"] span { color: #e0e0e0; }
+    
+    /* 進度條 */
     .progress-label { font-weight: bold; color: #ffffff !important; margin-bottom: -5px; margin-top: 10px; }
+    
+    /* 按鈕 */
     .stButton>button { 
         color: #d3a625; background-color: #740001; border: 2px solid #d3a625; 
         font-weight: bold; border-radius: 8px; font-family: 'Noto Serif TC', serif; width: 100%;
     }
     .stButton>button:hover { background-color: #5d0000; border-color: #ffcc00; }
+    
+    /* 首頁與卡片 */
+    .welcome-box {
+        background-color: #fffbf0; border: 2px dashed #740001; padding: 30px; 
+        text-align: center; border-radius: 15px; margin-bottom: 20px;
+    }
+    .stat-card {
+        background-color: #fff; padding: 20px; border-radius: 10px; 
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1); text-align: center;
+    }
+    
     .certificate-box { border: 5px double #d3a625; padding: 30px; background-color: #fffbf0; text-align: center; margin: 20px 0; box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
     .success-msg { padding:15px; background-color:#d4edda; color:#155724; border-left: 5px solid #28a745; font-weight:bold; font-size: 1.2em; }
     .error-box { padding:15px; background-color:#f8d7da; color:#721c24; border-left: 5px solid #dc3545; font-size: 1.2em;}
@@ -39,7 +56,15 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. Google Sheets 連線 ---
+# --- 2. 工具函式 ---
+def get_zhuyin(text):
+    if not isinstance(text, str): return ""
+    try:
+        result = pinyin(text, style=Style.BOPOMOFO)
+        return " ".join([item[0] for item in result])
+    except: return ""
+
+# --- 3. Google Sheets 連線 ---
 @st.cache_resource
 def get_gsheet_client():
     try:
@@ -81,7 +106,6 @@ def load_db_from_sheet():
             try: subject_stats = json.loads(stats_json)
             except: subject_stats = {}
 
-            # 讀取密碼時強制轉字串
             raw_pw = str(get_val('Password', ''))
             
             user_db[name] = {
@@ -107,21 +131,11 @@ def save_user_to_sheet(name, data):
     try:
         sheet = client.open_by_url(SHEET_URL).sheet1
         stats_json = json.dumps(data['subject_stats'], ensure_ascii=False)
-        
-        # 修正：密碼前加單引號，強制 Google Sheet 視為文字
         pw_to_save = "'" + str(data['password'])
-        
         row_data = [
-            name,
-            pw_to_save,
-            data['xp'],
-            data['hp'],
-            data['last_hp_time'],
-            ",".join(data['badges']),
-            str(data['wrong_list']),
-            stats_json
+            name, pw_to_save, data['xp'], data['hp'], data['last_hp_time'],
+            ",".join(data['badges']), str(data['wrong_list']), stats_json
         ]
-        
         try:
             name_list = sheet.col_values(1)
             if name in name_list:
@@ -135,8 +149,7 @@ def save_user_to_sheet(name, data):
     except Exception as e:
         st.warning(f"連線錯誤: {e}")
 
-# --- 3. 初始化 Session State (修正 AttributeError 關鍵) ---
-# 必須放在所有邏輯之前！
+# --- 4. Session State 初始化 (置頂避免報錯) ---
 if 'user_db' not in st.session_state:
     st.session_state.user_db = load_db_from_sheet()
 if 'current_user' not in st.session_state:
@@ -153,15 +166,11 @@ if 'show_cert' not in st.session_state:
     st.session_state.show_cert = False
 if 'selected_subject' not in st.session_state:
     st.session_state.selected_subject = "全部學科"
+# ★ 新增狀態：是否正在上課 ★
+if 'is_playing' not in st.session_state:
+    st.session_state.is_playing = False
 
-# --- 4. 資料與工具 ---
-def get_zhuyin(text):
-    if not isinstance(text, str): return ""
-    try:
-        result = pinyin(text, style=Style.BOPOMOFO)
-        return " ".join([item[0] for item in result])
-    except: return ""
-
+# --- 5. 資料與工具 ---
 def sorting_hat(idiom_row):
     text = str(idiom_row['成語']) + str(idiom_row['解釋'])
     keywords = {
@@ -264,8 +273,6 @@ def generate_question(subject):
         
     row = pool.sample(1).iloc[0]
     q = {'row': row, 'type': lvl_type, 'ans': row['成語'], 'options': [], 'level': lvl}
-    
-    # 優先使用資料庫注音，若無則使用自動注音
     if '注音' in row and str(row['注音']).strip():
         q['zhuyin'] = row['注音']
     else:
@@ -294,7 +301,7 @@ def generate_question(subject):
         q['text'] = f"🔥 **【終極挑戰】**：請寫出符合此解釋的成語\n{row['解釋']}"
     return q
 
-# --- 5. 介面邏輯 ---
+# --- 6. 介面邏輯 ---
 with st.sidebar:
     st.markdown("<h1 style='text-align: center;'>🏰 霍格華茲</h1>", unsafe_allow_html=True)
     
@@ -309,11 +316,10 @@ with st.sidebar:
             if st.button("進入學院"):
                 if login_name != "請選擇..." and login_pw:
                     u_data = st.session_state.user_db.get(login_name)
-                    # 寬鬆比對：避免 '0927' != '927'
                     if u_data and str(u_data['password']).replace("'", "") == str(login_pw):
                         st.session_state.current_user = login_name
                         st.session_state.is_logged_in = True
-                        st.session_state.waiting_for_next = False
+                        st.session_state.is_playing = False # 登入後先去首頁
                         st.toast(f"歡迎回來，{login_name}！")
                         st.rerun()
                     else:
@@ -327,7 +333,6 @@ with st.sidebar:
                     ok, msg = register_user(reg_name, reg_pw)
                     if ok:
                         st.success(msg)
-                        # 註冊成功後，重新讀取 DB 並刷新頁面
                         st.session_state.user_db = load_db_from_sheet()
                         time.sleep(1.5)
                         st.rerun()
@@ -337,8 +342,6 @@ with st.sidebar:
     else:
         # 已登入
         ud = get_user_data()
-        
-        # 體力回復計算
         now = time.time()
         elapsed = now - ud['last_hp_time']
         rec = int(elapsed // 1800)
@@ -351,11 +354,8 @@ with st.sidebar:
         hp = ud['hp']
         st.markdown(f"## 🎓 {st.session_state.current_user}")
         st.markdown(f"<div style='font-size:20px; color:#c62828'>{'❤️'*hp}{'🤍'*(10-hp)}</div>", unsafe_allow_html=True)
-        
-        # 顯示倒數時間
         if hp < 10:
-            remaining = 1800 - (elapsed % 1800)
-            mins = int(remaining // 60)
+            mins = int((1800 - (elapsed % 1800)) // 60)
             st.caption(f"⏳ 下一點回復：約 {mins} 分鐘")
         else:
             st.caption("體力已滿")
@@ -363,6 +363,7 @@ with st.sidebar:
         if st.button("登出"):
             st.session_state.is_logged_in = False
             st.session_state.current_user = None
+            st.session_state.is_playing = False
             st.rerun()
 
         st.markdown("---")
@@ -372,19 +373,20 @@ with st.sidebar:
         
         if new_subject != st.session_state.selected_subject:
             st.session_state.selected_subject = new_subject
+            # 換科目要重置狀態
             st.session_state.current_q = None
             st.session_state.waiting_for_next = False
+            st.session_state.is_playing = False # 回到首頁
             st.rerun()
             
         st.markdown("---")
         
         if st.session_state.selected_subject == "全部學科":
-            st.warning("⚠️ 自由練習模式：不計入升級考核")
+            st.warning("⚠️ 自由練習模式")
         else:
             s_stats = get_subject_stats(ud, st.session_state.selected_subject)
             lvl = s_stats['level']
             cfg = LEVELS[lvl]
-            
             st.markdown(f"### 🎓 **{cfg['name']}**")
             st.caption(f"測驗內容：{cfg['desc']}")
             
@@ -399,8 +401,11 @@ with st.sidebar:
                 st.markdown(f"<p class='progress-label'>🔥 連續答對：{c_streak} / {req_streak}</p>", unsafe_allow_html=True)
                 st.progress(min(1.0, c_streak/req_streak))
 
-# --- 6. 主畫面 ---
+# --- 7. 主畫面 ---
 tab1, tab2, tab3 = st.tabs(["⚡ 咒語修練", "🏆 學院布告欄", "🔮 錯題儲思盆"])
+
+if 'last_result' not in st.session_state: st.session_state.last_result = None
+if 'show_cert' not in st.session_state: st.session_state.show_cert = False
 
 with tab1:
     if not st.session_state.is_logged_in:
@@ -409,130 +414,158 @@ with tab1:
         ud = get_user_data()
         subj = st.session_state.selected_subject
         
-        if st.session_state.show_cert:
-            cert_type = st.session_state.get('cert_type')
-            if cert_type == "level_up":
-                title, body, btn = "✨ 升級證書 ✨", f"恭喜 {st.session_state.current_user} 晉升！", "晉升"
-            else:
-                title, body, btn = "🏆 宗師證書 🏆", f"恭喜成為 {subj} 大師！", "領取"
+        # 狀態：首頁 (Lobby)
+        if not st.session_state.is_playing:
+            st.markdown(f"""
+            <div class="welcome-box">
+                <h1 class="magic-font">歡迎來到霍格華茲成語學院</h1>
+                <h3>準備好開始今天的修練了嗎？</h3>
+                <p>目前選修：<b>{subj}</b></p>
+            </div>
+            """, unsafe_allow_html=True)
             
-            st.markdown(f"""<div class="certificate-box"><div class="magic-font" style="font-size:3em;">{title}</div><p>{body}</p></div>""", unsafe_allow_html=True)
-            if st.button(btn, use_container_width=True):
-                s_stats = get_subject_stats(ud, subj)
-                if cert_type == "level_up":
-                    s_stats['level'] += 1
-                    s_stats['level_correct'] = 0
-                    s_stats['streak'] = 0
-                else:
-                    badge = f"{subj}大師"
-                    if badge not in ud['badges']: ud['badges'].append(badge)
-                
-                update_subject_stats(ud, subj, s_stats)
-                st.session_state.show_cert = False
-                st.session_state.current_q = None
-                st.session_state.waiting_for_next = False
-                st.rerun()
-        
-        elif st.session_state.waiting_for_next and st.session_state.last_result:
-            res = st.session_state.last_result
-            row = res['row_data']
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.markdown('<div class="stat-card"><h4>總經驗值</h4><h2>✨ {}</h2></div>'.format(ud['xp']), unsafe_allow_html=True)
+            with c2:
+                st.markdown('<div class="stat-card"><h4>擁有徽章</h4><h2>🏅 {}</h2></div>'.format(len(ud['badges'])), unsafe_allow_html=True)
+            with c3:
+                st.markdown('<div class="stat-card"><h4>錯題待練</h4><h2>🔮 {}</h2></div>'.format(len(ud['wrong_list'])), unsafe_allow_html=True)
             
-            if res['correct']:
-                st.markdown(f'<div class="success-msg">✨ 咒語生效！</div>', unsafe_allow_html=True)
-            else:
-                st.markdown(f"""<div class="error-box">💥 錯誤...<br><div class="correct-ans">正確答案：{res['ans']}</div></div>""", unsafe_allow_html=True)
-            
-            with st.expander("📖 查看成語詳解", expanded=True):
-                # 優先使用資料庫注音
-                zhuyin_text = row.get('注音') if '注音' in row and str(row.get('注音')).strip() else get_zhuyin(row['成語'])
-                st.markdown(f"<h3 style='margin-bottom:0;'>{row['成語']} <span class='zhuyin'>{zhuyin_text}</span></h3>", unsafe_allow_html=True)
-                st.write(f"**解釋**：{row['解釋']}")
-                if row['例句']: st.write(f"**例句**：{row['例句']}")
-                c1, c2 = st.columns(2)
-                if row['近義詞']: c1.markdown(f"**近義詞**：`{row['近義詞']}`")
-                if row['反義詞']: c2.markdown(f"**反義詞**：`{row['反義詞']}`")
-            
-            st.write("---")
-            if st.button("下一題 ➡️"):
-                st.session_state.last_result = None
-                st.session_state.current_q = None
-                st.session_state.waiting_for_next = False
+            st.write("")
+            if st.button("🚀 開始上課 (Start Class)", type="primary"):
+                st.session_state.is_playing = True
                 st.rerun()
 
+        # 狀態：上課中 (Game Loop)
         else:
-            if ud['hp'] <= 0:
-                st.error("💀 體力耗盡！請休息一下。")
-            else:
-                if st.session_state.current_q is None:
-                    st.session_state.current_q = generate_question(subj)
-                q = st.session_state.current_q
+            # 顯示證書
+            if st.session_state.show_cert:
+                cert_type = st.session_state.get('cert_type')
+                if cert_type == "level_up":
+                    title, body, btn = "✨ 升級證書 ✨", f"恭喜 {st.session_state.current_user} 晉升！", "晉升"
+                else:
+                    title, body, btn = "🏆 宗師證書 🏆", f"恭喜成為 {subj} 大師！", "領取"
                 
-                if q:
-                    st.markdown(f"### {q['text']}")
+                st.markdown(f"""<div class="certificate-box"><div class="magic-font" style="font-size:3em;">{title}</div><p>{body}</p></div>""", unsafe_allow_html=True)
+                if st.button(btn, use_container_width=True):
+                    s_stats = get_subject_stats(ud, subj)
+                    if cert_type == "level_up":
+                        s_stats['level'] += 1
+                        s_stats['level_correct'] = 0
+                        s_stats['streak'] = 0
+                    else:
+                        badge = f"{subj}大師"
+                        if badge not in ud['badges']: ud['badges'].append(badge)
                     
-                    if q['type'] in ['fill', 'chal']:
-                        with st.expander("💡 需要提示嗎？"):
-                            if q['row']['近義詞']: st.write(f"近義詞：{q['row']['近義詞']}")
-                            else: st.write("無提示")
-                            if q['row']['反義詞']: st.write(f"反義詞：{q['row']['反義詞']}")
+                    update_subject_stats(ud, subj, s_stats)
+                    st.session_state.show_cert = False
+                    st.session_state.current_q = None
+                    st.session_state.waiting_for_next = False
+                    st.rerun()
+            
+            # 等待下一題 (結果卡)
+            elif st.session_state.waiting_for_next and st.session_state.last_result:
+                res = st.session_state.last_result
+                row = res['row_data']
+                
+                if res['correct']:
+                    st.markdown(f'<div class="success-msg">✨ 咒語生效！</div>', unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""<div class="error-box">💥 錯誤...<br><div class="correct-ans">正確答案：{res['ans']}</div></div>""", unsafe_allow_html=True)
+                
+                with st.expander("📖 查看成語詳解", expanded=True):
+                    zhuyin_text = row.get('注音') if '注音' in row and str(row.get('注音')).strip() else get_zhuyin(row['成語'])
+                    st.markdown(f"<h3 style='margin-bottom:0;'>{row['成語']} <span class='zhuyin'>{zhuyin_text}</span></h3>", unsafe_allow_html=True)
+                    st.write(f"**解釋**：{row['解釋']}")
+                    if row['例句']: st.write(f"**例句**：{row['例句']}")
+                    c1, c2 = st.columns(2)
+                    if row['近義詞']: c1.markdown(f"**近義詞**：`{row['近義詞']}`")
+                    if row['反義詞']: c2.markdown(f"**反義詞**：`{row['反義詞']}`")
+                
+                st.write("---")
+                if st.button("下一題 ➡️"):
+                    st.session_state.last_result = None
+                    st.session_state.current_q = None
+                    st.session_state.waiting_for_next = False
+                    st.rerun()
 
-                    with st.form("ans"):
-                        if q['type'] in ['def', 'sent']: 
-                            ans = st.radio("選項：", q['options'])
-                        elif q['type'] == 'fill': 
-                            ans = st.text_input("填字：", max_chars=1)
-                        elif q['type'] == 'chal': 
-                            ans = st.text_input("成語：")
-                        sub = st.form_submit_button("🪄 施法")
+            # 作答區
+            else:
+                if st.button("🔙 下課休息 (回到大廳)"):
+                    st.session_state.is_playing = False
+                    st.session_state.current_q = None
+                    st.rerun()
+
+                if ud['hp'] <= 0:
+                    st.error("💀 體力耗盡！請休息一下。")
+                else:
+                    if st.session_state.current_q is None:
+                        st.session_state.current_q = generate_question(subj)
+                    q = st.session_state.current_q
                     
-                    if sub:
-                        ud['hp'] -= 1
-                        corr = False
-                        if ans and ans.strip() == q['ans']:
-                            corr = True
-                            ud['hp'] += 1
-                            ud['xp'] += 10
-                            
-                            if subj != "全部學科":
-                                s_stats = get_subject_stats(ud, subj)
-                                s_stats['level_correct'] += 1
-                                s_stats['streak'] += 1
-                                if s_stats['streak'] > s_stats['max_streak']: s_stats['max_streak'] = s_stats['streak']
-                                update_subject_stats(ud, subj, s_stats)
+                    if q:
+                        st.markdown(f"### {q['text']}")
+                        
+                        if q['type'] in ['fill', 'chal']:
+                            with st.expander("💡 需要提示嗎？"):
+                                if q['row']['近義詞']: st.write(f"近義詞：{q['row']['近義詞']}")
+                                else: st.write("無提示")
+                                if q['row']['反義詞']: st.write(f"反義詞：{q['row']['反義詞']}")
+
+                        with st.form("ans"):
+                            if q['type'] in ['def', 'sent']: 
+                                ans = st.radio("選項：", q['options'])
+                            elif q['type'] == 'fill': 
+                                ans = st.text_input("填字：", max_chars=1)
+                            elif q['type'] == 'chal': 
+                                ans = st.text_input("成語：")
+                            sub = st.form_submit_button("🪄 施法")
+                        
+                        if sub:
+                            ud['hp'] -= 1
+                            corr = False
+                            if ans and ans.strip() == q['ans']:
+                                corr = True
+                                ud['hp'] += 1
+                                ud['xp'] += 10
+                                if subj != "全部學科":
+                                    s_stats = get_subject_stats(ud, subj)
+                                    s_stats['level_correct'] += 1
+                                    s_stats['streak'] += 1
+                                    if s_stats['streak'] > s_stats['max_streak']: s_stats['max_streak'] = s_stats['streak']
+                                    update_subject_stats(ud, subj, s_stats)
+                                else:
+                                    save_user_to_sheet(st.session_state.current_user, ud)
                             else:
+                                if subj != "全部學科":
+                                    s_stats = get_subject_stats(ud, subj)
+                                    s_stats['streak'] = 0
+                                    update_subject_stats(ud, subj, s_stats)
+                                
+                                found = False
+                                for item in ud['wrong_list']:
+                                    if item['成語'] == q['row']['成語']:
+                                        item['count'] = item.get('count', 1) + 1
+                                        item['誤答'] = ans 
+                                        found = True
+                                        break
+                                if not found:
+                                    ud['wrong_list'].append({'成語': q['row']['成語'], '誤答': ans, 'count': 1})
+
                                 save_user_to_sheet(st.session_state.current_user, ud)
-                        else:
+                            
+                            st.session_state.last_result = {'correct': corr, 'ans': q['ans'], 'row_data': q['row']}
+                            st.session_state.waiting_for_next = True
+                            
                             if subj != "全部學科":
                                 s_stats = get_subject_stats(ud, subj)
-                                s_stats['streak'] = 0
-                                update_subject_stats(ud, subj, s_stats)
-                            
-                            # 錯題累計邏輯
-                            found = False
-                            for item in ud['wrong_list']:
-                                if item['成語'] == q['row']['成語']:
-                                    item['count'] = item.get('count', 1) + 1
-                                    # 更新最後誤答
-                                    item['誤答'] = ans 
-                                    found = True
-                                    break
-                            if not found:
-                                ud['wrong_list'].append({'成語': q['row']['成語'], '誤答': ans, 'count': 1})
-
-                            save_user_to_sheet(st.session_state.current_user, ud)
-                        
-                        st.session_state.last_result = {'correct': corr, 'ans': q['ans'], 'row_data': q['row']}
-                        st.session_state.waiting_for_next = True
-                        
-                        if subj != "全部學科":
-                            s_stats = get_subject_stats(ud, subj)
-                            cfg = LEVELS[s_stats['level']]
-                            if s_stats['level_correct'] >= cfg['target'] and s_stats['streak'] >= cfg['streak_req']:
-                                st.session_state.show_cert = True
-                                st.session_state.cert_type = "master" if s_stats['level'] == 4 else "level_up"
-                                st.session_state.waiting_for_next = False
-                        
-                        st.rerun()
+                                cfg = LEVELS[s_stats['level']]
+                                if s_stats['level_correct'] >= cfg['target'] and s_stats['streak'] >= cfg['streak_req']:
+                                    st.session_state.show_cert = True
+                                    st.session_state.cert_type = "master" if s_stats['level'] == 4 else "level_up"
+                                    st.session_state.waiting_for_next = False
+                            st.rerun()
 
 with tab2:
     st.markdown("### 🏆 霍格華茲風雲榜")
@@ -551,7 +584,6 @@ with tab3:
     if st.session_state.is_logged_in:
         ud = get_user_data()
         if ud['wrong_list']:
-            # 整理錯題顯示
             display_list = []
             for w in ud['wrong_list']:
                 display_list.append({
@@ -559,7 +591,6 @@ with tab3:
                     "最近誤答": w['誤答'],
                     "錯誤次數": w.get('count', 1)
                 })
-            
             st.table(pd.DataFrame(display_list))
             if st.button("清除錯題"):
                 ud['wrong_list'] = []
