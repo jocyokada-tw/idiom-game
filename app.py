@@ -29,7 +29,15 @@ st.markdown("""
     section[data-testid="stSidebar"] label { color: #ffffff !important; font-weight: bold; font-size: 1.1em; }
     section[data-testid="stSidebar"] p, section[data-testid="stSidebar"] div, section[data-testid="stSidebar"] span { color: #e0e0e0; }
     
+    /* 下拉選單文字修正 */
+    .stSelectbox div[data-baseweb="select"] div { color: #333333 !important; font-weight: bold; }
+    
+    /* 題目選項優化 */
+    .stRadio label p { font-size: 20px !important; line-height: 1.15 !important; color: #2c2c2c !important; }
+    .stRadio label { margin-bottom: 10px; }
+
     .progress-label { font-weight: bold; color: #ffffff !important; margin-bottom: -5px; margin-top: 10px; }
+    
     .stButton>button { 
         color: #d3a625; background-color: #740001; border: 2px solid #d3a625; 
         font-weight: bold; border-radius: 8px; font-family: 'Noto Serif TC', serif; width: 100%;
@@ -44,7 +52,6 @@ st.markdown("""
         background-color: #fff; padding: 20px; border-radius: 10px; 
         box-shadow: 0 2px 5px rgba(0,0,0,0.1); text-align: center;
     }
-    
     .certificate-box { border: 5px double #d3a625; padding: 30px; background-color: #fffbf0; text-align: center; margin: 20px 0; box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
     .success-msg { padding:15px; background-color:#d4edda; color:#155724; border-left: 5px solid #28a745; font-weight:bold; font-size: 1.2em; }
     .error-box { padding:15px; background-color:#f8d7da; color:#721c24; border-left: 5px solid #dc3545; font-size: 1.2em;}
@@ -52,7 +59,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. 工具函式：注音與檢測 ---
+# --- 2. 工具函式 ---
 def get_zhuyin(text):
     if not isinstance(text, str): return ""
     try:
@@ -61,13 +68,10 @@ def get_zhuyin(text):
     except: return ""
 
 def is_valid_zhuyin(text):
-    """檢查是否包含國字 (如果包含國字，代表 Excel 填錯了，要忽略)"""
     if not text or not isinstance(text, str): return False
-    # 檢查是否包含中文字元範圍 (Unicode 4E00-9FFF)
     for char in text:
-        if '\u4e00' <= char <= '\u9fa5':
-            return False # 包含國字，無效
-    return True # 沒有國字，視為有效注音
+        if '\u4e00' <= char <= '\u9fa5': return False
+    return True
 
 # --- 3. Google Sheets 連線 ---
 @st.cache_resource
@@ -154,7 +158,7 @@ def save_user_to_sheet(name, data):
     except Exception as e:
         st.warning(f"連線錯誤: {e}")
 
-# --- 4. Session State 初始化 ---
+# --- 4. Session State ---
 if 'user_db' not in st.session_state:
     st.session_state.user_db = load_db_from_sheet()
 if 'current_user' not in st.session_state:
@@ -174,7 +178,7 @@ if 'selected_subject' not in st.session_state:
 if 'is_playing' not in st.session_state:
     st.session_state.is_playing = False
 
-# --- 5. 資料與工具 ---
+# --- 5. 資料與分類 ---
 def sorting_hat(idiom_row):
     text = str(idiom_row['成語']) + str(idiom_row['解釋'])
     keywords = {
@@ -186,12 +190,11 @@ def sorting_hat(idiom_row):
         "黑魔法防禦術": "鬼魔死殺傷血痛毒惡害危險恐懼戰鬥兵甲",
         "飛行課": "飛騰雲駕霧跑走奔速快追逐",
         "變形學": "變改化形貌狀樣子假",
-        "古代如尼文": "古舊昔史書文言字語論典籍",
         "占卜學": "夢想吉凶禍福命運測知未卜",
         "現影術": "隱顯出入來去蹤跡",
         "魔藥學": "水酒湯藥毒飲",
         "麻瓜研究": "門戶家室衣食住行市井路途人情世故",
-        "魔法史": "朝代春秋戰國古今世事",
+        "魔法史": "朝代春秋戰國古今世事書文言字語論典籍舊昔", 
     }
     for subject, keys in keywords.items():
         if any(k in text for k in keys): return subject
@@ -278,16 +281,13 @@ def generate_question(subject):
     row = pool.sample(1).iloc[0]
     q = {'row': row, 'type': lvl_type, 'ans': row['成語'], 'options': [], 'level': lvl}
     
-    # ★★★ 智慧注音判斷 ★★★
     db_zhuyin = str(row.get('注音', '')).strip()
     if is_valid_zhuyin(db_zhuyin):
         q['zhuyin'] = db_zhuyin
     else:
         q['zhuyin'] = get_zhuyin(row['成語'])
-    # ★★★★★★★★★★★★★★★★
     
     if lvl_type == 'def':
-        # 近/反義詞出題機率
         has_syn = '近義詞' in row and str(row['近義詞']).strip()
         has_ant = '反義詞' in row and str(row['反義詞']).strip()
         dice = random.randint(0, 100)
@@ -467,6 +467,8 @@ with tab1:
         else:
             if st.session_state.show_cert:
                 cert_type = st.session_state.get('cert_type')
+                
+                # ★★★ 新增：升級徽章邏輯 ★★★
                 if cert_type == "level_up":
                     title, body, btn = "✨ 升級證書 ✨", f"恭喜 {st.session_state.current_user} 晉升！", "晉升"
                 else:
@@ -475,7 +477,18 @@ with tab1:
                 st.markdown(f"""<div class="certificate-box"><div class="magic-font" style="font-size:3em;">{title}</div><p>{body}</p></div>""", unsafe_allow_html=True)
                 if st.button(btn, use_container_width=True):
                     s_stats = get_subject_stats(ud, subj)
+                    
                     if cert_type == "level_up":
+                        # 頒發年級徽章
+                        curr = s_stats['level']
+                        new_badge = ""
+                        if curr == 1: new_badge = "📜 初級咒語合格"
+                        elif curr == 2: new_badge = "🦌 守護神召喚師"
+                        elif curr == 3: new_badge = "🎓 O.W.L.s 傑出"
+                        
+                        if new_badge and new_badge not in ud['badges']:
+                            ud['badges'].append(new_badge)
+                            
                         s_stats['level'] += 1
                         s_stats['level_correct'] = 0
                         s_stats['streak'] = 0
@@ -499,7 +512,6 @@ with tab1:
                     st.markdown(f"""<div class="error-box">💥 錯誤...<br><div class="correct-ans">正確答案：{res['ans']}</div></div>""", unsafe_allow_html=True)
                 
                 with st.expander("📖 查看成語詳解", expanded=True):
-                    # ★★★ 智慧注音判斷 (結果卡) ★★★
                     db_zhuyin = str(row.get('注音', '')).strip()
                     zhuyin_text = db_zhuyin if is_valid_zhuyin(db_zhuyin) else get_zhuyin(row['成語'])
                     
@@ -560,6 +572,14 @@ with tab1:
                                     s_stats['level_correct'] += 1
                                     s_stats['streak'] += 1
                                     if s_stats['streak'] > s_stats['max_streak']: s_stats['max_streak'] = s_stats['streak']
+                                    
+                                    # ★★★ 新增：連對30 徽章 ★★★
+                                    if s_stats['streak'] == 30:
+                                        streak_badge = "🔥 火閃電騎士"
+                                        if streak_badge not in ud['badges']:
+                                            ud['badges'].append(streak_badge)
+                                            st.toast(f"🏅 獲得成就：{streak_badge}！")
+                                            
                                     update_subject_stats(ud, subj, s_stats)
                                 else:
                                     save_user_to_sheet(st.session_state.current_user, ud)
