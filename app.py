@@ -24,17 +24,22 @@ st.markdown("""
     .stApp { background-color: #f8f5e6; font-family: 'Noto Serif TC', serif; }
     h1, h2, h3, .magic-font { font-family: 'Ma Shan Zheng', cursive; color: #740001; }
     
+    /* 側邊欄 */
     section[data-testid="stSidebar"] { background-color: #262730; color: #ecf0f1; }
     section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2 { color: #f1c40f; }
     section[data-testid="stSidebar"] label { color: #ffffff !important; font-weight: bold; font-size: 1.1em; }
     section[data-testid="stSidebar"] p, section[data-testid="stSidebar"] div, section[data-testid="stSidebar"] span { color: #e0e0e0; }
     
-    /* 下拉選單文字修正 */
+    /* 下拉選單 */
     .stSelectbox div[data-baseweb="select"] div { color: #333333 !important; font-weight: bold; }
     
-    /* 題目選項優化 */
+    /* 題目選項 (20px) */
     .stRadio label p { font-size: 20px !important; line-height: 1.15 !important; color: #2c2c2c !important; }
     .stRadio label { margin-bottom: 10px; }
+
+    /* ★★★ 新增：詳解文字加大 (20px) ★★★ */
+    .review-text { font-size: 20px !important; line-height: 1.5; color: #333; }
+    .review-text strong { color: #740001; }
 
     .progress-label { font-weight: bold; color: #ffffff !important; margin-bottom: -5px; margin-top: 10px; }
     
@@ -52,6 +57,13 @@ st.markdown("""
         background-color: #fff; padding: 20px; border-radius: 10px; 
         box-shadow: 0 2px 5px rgba(0,0,0,0.1); text-align: center;
     }
+    /* 徽章展示卡 */
+    .badge-card {
+        background-color: #fff; border: 1px solid #gold; padding: 10px; 
+        border-radius: 8px; text-align: center; margin: 5px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
     .certificate-box { border: 5px double #d3a625; padding: 30px; background-color: #fffbf0; text-align: center; margin: 20px 0; box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
     .success-msg { padding:15px; background-color:#d4edda; color:#155724; border-left: 5px solid #28a745; font-weight:bold; font-size: 1.2em; }
     .error-box { padding:15px; background-color:#f8d7da; color:#721c24; border-left: 5px solid #dc3545; font-size: 1.2em;}
@@ -99,7 +111,7 @@ def load_db_from_sheet():
         col_map = {h: i for i, h in enumerate(headers) if h.strip()}
         
         user_db = {}
-        for row in rows:
+        for idx, row in enumerate(rows): # idx 從 0 開始，對應 rows[0]
             if 'Name' not in col_map: continue
             name_idx = col_map['Name']
             if name_idx >= len(row) or not row[name_idx]: continue
@@ -118,6 +130,7 @@ def load_db_from_sheet():
             raw_pw = str(get_val('Password', ''))
             
             user_db[name] = {
+                'row_idx': idx + 2, # ★ 記錄在 Google Sheet 的行數 (1是標題，2是第一筆)
                 'password': raw_pw,
                 'xp': int(get_val('XP', 0)),
                 'hp': int(get_val('HP', 10)),
@@ -135,28 +148,34 @@ def load_db_from_sheet():
         return {}
 
 def save_user_to_sheet(name, data):
+    """
+    ★ 效能優化版存檔 ★
+    直接使用 load_db 時記錄的 row_idx 進行整列更新，
+    避免使用 find() 和 update_cell() (8次請求 -> 1次請求)
+    """
     client = get_gsheet_client()
     if not client: return
     try:
         sheet = client.open_by_url(SHEET_URL).sheet1
         stats_json = json.dumps(data['subject_stats'], ensure_ascii=False)
         pw_to_save = "'" + str(data['password'])
+        
         row_data = [
             name, pw_to_save, data['xp'], data['hp'], data['last_hp_time'],
             ",".join(data['badges']), str(data['wrong_list']), stats_json
         ]
-        try:
-            name_list = sheet.col_values(1)
-            if name in name_list:
-                row_idx = name_list.index(name) + 1
-                for i, val in enumerate(row_data):
-                    sheet.update_cell(row_idx, i+1, val)
-            else:
-                sheet.append_row(row_data)
-        except Exception as inner_e:
-            st.warning(f"寫入錯誤: {inner_e}")
+        
+        # 如果知道行數，直接更新該範圍
+        if 'row_idx' in data:
+            r = data['row_idx']
+            # update 接受範圍 (例如 "A2:H2") 和 列表的列表
+            sheet.update(range_name=f"A{r}:H{r}", values=[row_data])
+        else:
+            # 如果是新註冊(還沒重讀DB拿到row_idx)，用 append
+            sheet.append_row(row_data)
+            
     except Exception as e:
-        st.warning(f"連線錯誤: {e}")
+        st.warning(f"存檔連線失敗: {e}")
 
 # --- 4. Session State ---
 if 'user_db' not in st.session_state:
@@ -463,12 +482,21 @@ with tab1:
             if st.button("🚀 開始上課", type="primary"):
                 st.session_state.is_playing = True
                 st.rerun()
+            
+            # ★★★ 新增：徽章收藏櫃 ★★★
+            st.markdown("---")
+            st.subheader("🏅 徽章收藏櫃")
+            if ud['badges']:
+                cols = st.columns(4)
+                for i, badge in enumerate(ud['badges']):
+                    with cols[i % 4]:
+                        st.markdown(f'<div class="badge-card"><h3>{badge}</h3></div>', unsafe_allow_html=True)
+            else:
+                st.caption("尚未獲得任何徽章，快去修練吧！")
 
         else:
             if st.session_state.show_cert:
                 cert_type = st.session_state.get('cert_type')
-                
-                # ★★★ 新增：升級徽章邏輯 ★★★
                 if cert_type == "level_up":
                     title, body, btn = "✨ 升級證書 ✨", f"恭喜 {st.session_state.current_user} 晉升！", "晉升"
                 else:
@@ -477,14 +505,13 @@ with tab1:
                 st.markdown(f"""<div class="certificate-box"><div class="magic-font" style="font-size:3em;">{title}</div><p>{body}</p></div>""", unsafe_allow_html=True)
                 if st.button(btn, use_container_width=True):
                     s_stats = get_subject_stats(ud, subj)
-                    
                     if cert_type == "level_up":
-                        # 頒發年級徽章
+                        # 升級徽章
                         curr = s_stats['level']
                         new_badge = ""
                         if curr == 1: new_badge = "📜 初級咒語合格"
                         elif curr == 2: new_badge = "🦌 守護神召喚師"
-                        elif curr == 3: new_badge = "🎓 O.W.L.s 傑出"
+                        elif curr == 3: new_badge = "🎓 O.W.L.s 傑出巫師"
                         
                         if new_badge and new_badge not in ud['badges']:
                             ud['badges'].append(new_badge)
@@ -511,16 +538,22 @@ with tab1:
                 else:
                     st.markdown(f"""<div class="error-box">💥 錯誤...<br><div class="correct-ans">正確答案：{res['ans']}</div></div>""", unsafe_allow_html=True)
                 
+                # ★★★ 套用 .review-text 加大字體 ★★★
                 with st.expander("📖 查看成語詳解", expanded=True):
                     db_zhuyin = str(row.get('注音', '')).strip()
                     zhuyin_text = db_zhuyin if is_valid_zhuyin(db_zhuyin) else get_zhuyin(row['成語'])
                     
                     st.markdown(f"<h3 style='margin-bottom:0;'>{row['成語']} <span class='zhuyin'>{zhuyin_text}</span></h3>", unsafe_allow_html=True)
-                    st.write(f"**解釋**：{row['解釋']}")
-                    if row['例句']: st.write(f"**例句**：{row['例句']}")
+                    st.markdown(f'<div class="review-text"><strong>解釋</strong>：{row["解釋"]}</div>', unsafe_allow_html=True)
+                    if row['例句']: 
+                        st.markdown(f'<div class="review-text"><strong>例句</strong>：{row["例句"]}</div>', unsafe_allow_html=True)
+                    
+                    st.write("") # 間隔
                     c1, c2 = st.columns(2)
-                    if row['近義詞']: c1.markdown(f"**近義詞**：`{row['近義詞']}`")
-                    if row['反義詞']: c2.markdown(f"**反義詞**：`{row['反義詞']}`")
+                    if row['近義詞']: 
+                        c1.markdown(f'<div class="review-text"><strong>近義詞</strong>：{row["近義詞"]}</div>', unsafe_allow_html=True)
+                    if row['反義詞']: 
+                        c2.markdown(f'<div class="review-text"><strong>反義詞</strong>：{row["反義詞"]}</div>', unsafe_allow_html=True)
                 
                 st.write("---")
                 if st.button("下一題 ➡️"):
@@ -573,7 +606,7 @@ with tab1:
                                     s_stats['streak'] += 1
                                     if s_stats['streak'] > s_stats['max_streak']: s_stats['max_streak'] = s_stats['streak']
                                     
-                                    # ★★★ 新增：連對30 徽章 ★★★
+                                    # 連對30徽章
                                     if s_stats['streak'] == 30:
                                         streak_badge = "🔥 火閃電騎士"
                                         if streak_badge not in ud['badges']:
